@@ -16,3 +16,12 @@ to build the Acorn Z80 Second Processor edition.
 
 Note that the name 'BBC BASIC' is used by permission of the British Broadcasting Corporation
 and is not transferrable to a derived or forked work.
+
+## Building with pasmo
+MACRO-80 is not required; the sources can be assembled with [pasmo](https://pasmo.speccy.org/):
+
+    make          # builds pasmo/out/BBCBASIC.COM (CP/M) and pasmo/out/BBCTUBE.COM (Acorn)
+    make check    # compares the results with the binaries in bin/
+    make clean
+
+`pasmo/build.py` preprocesses and concatenates the modules (pasmo has no linker).
