@@ -1,0 +1,39 @@
+; generated from src/HOOK.Z80 by pasmo/m80topasmo.py -- do not edit
+;
+;
+;
+;
+CLG:
+COLOUR:
+DRAW:
+ENVEL:
+GCOL:
+MODE:
+MOVE:
+PLOT:
+SOUND:
+ADVAL:
+POINT:
+GETIMS:
+PUTIMS:
+CIRCLE:
+ELLIPS:
+FILL:
+MOUSE:
+ORIGIN:
+RECTAN:
+LINE:
+TINT:
+TINTFN:
+MODEFN:
+WIDFN:
+WAIT:
+SYS:
+CSRON:
+CSROFF:
+	XOR	A
+	CALL	EXTERR
+	DEFM	'Sorry'
+	DEFB	0
+;
+

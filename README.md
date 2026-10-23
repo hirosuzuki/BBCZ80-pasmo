@@ -18,10 +18,21 @@ Note that the name 'BBC BASIC' is used by permission of the British Broadcasting
 and is not transferrable to a derived or forked work.
 
 ## Building with pasmo
-MACRO-80 is not required; the sources can be assembled with [pasmo](https://pasmo.speccy.org/):
+MACRO-80 is not required; the sources can be assembled with [pasmo](https://pasmo.speccy.org/).
+The build has two steps:
 
-    make          # builds pasmo/out/BBCBASIC.COM (CP/M) and pasmo/out/BBCTUBE.COM (Acorn)
+1. `pasmo/m80topasmo.py` converts each `src/*.Z80` module to a pasmo source `pasmo/*.asm`
+   (module-local labels are prefixed with the module name).  `pasmo/BBCBASIC.asm` (CP/M) and
+   `pasmo/BBCTUBE.asm` (Acorn) `INCLUDE` the modules, as pasmo has no linker.
+2. pasmo assembles the result.
+
+The generated `.asm` files are committed; do not edit them by hand.
+
+    make          # convert + assemble: pasmo/out/BBCBASIC.COM (CP/M) and pasmo/out/BBCTUBE.COM (Acorn)
+    make convert  # only src/*.Z80 -> pasmo/*.asm
     make check    # compares the results with the binaries in bin/
-    make clean
+    make clean    # removes pasmo/out and the generated pasmo/*.asm
 
-`pasmo/build.py` preprocesses and concatenates the modules (pasmo has no linker).
+Without Python, the committed files can be assembled directly:
+
+    pasmo -I pasmo --bin pasmo/BBCBASIC.asm BBCBASIC.COM

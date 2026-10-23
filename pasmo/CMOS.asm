@@ -1,0 +1,1467 @@
+; generated from src/CMOS.Z80 by pasmo/m80topasmo.py -- do not edit
+;
+;PATCH FOR BBC BASIC TO CP/M 2.2 & 3.0
+;*    PLAIN VANILLA CP/M VERSION     *
+;(C) COPYRIGHT R.T.RUSSELL, 25-12-1986
+;VERSION 5.0, 25-05-2024
+;
+;
+;
+;
+;
+;
+;OSSAVE - Save an area of memory to a file.
+;   Inputs: HL addresses filename (term CR)
+;           DE = start address of data to save
+;           BC = length of data to save (bytes)
+; Destroys: A,B,C,D,E,H,L,F
+;
+CMOS_STSAVE:	CALL	CMOS_SAVLOD			;*SAVE
+	JP	C,CMOS_HUH			;"Bad command"
+	PUSH	HL
+	JR	CMOS_OSS1
+;
+OSSAVE:	PUSH	BC			;SAVE
+	CALL	CMOS_SETUP0
+CMOS_OSS1:	EX	DE,HL
+	CALL	CMOS_CREATE
+	JR	NZ,CMOS_SAVE
+CMOS_DIRFUL:	LD	A,190
+	CALL	EXTERR
+	DEFM	'Directory full'
+	DEFB	0
+CMOS_SAVE:	CALL	CMOS_WRITE
+	ADD	HL,BC
+	EX	(SP),HL
+	SBC	HL,BC
+	EX	(SP),HL
+	JR	Z,CMOS_SAVE1
+	JR	NC,CMOS_SAVE
+CMOS_SAVE1:	POP	BC
+CMOS_CLOSE:	LD	A,16
+	CALL	CMOS_BDOS1
+	INC	A
+	RET	NZ
+	LD	A,200
+	CALL	EXTERR
+	DEFM	'Close error'
+	DEFB	0
+;
+;OSSHUT - Close disk file(s).
+;   Inputs: E = file channel
+;           If E=0 all files are closed (except SPOOL)
+; Destroys: A,B,C,D,E,H,L,F
+;
+OSSHUT:	LD	A,E
+	OR	A
+	JR	NZ,CMOS_SHUTIT
+CMOS_SHUT0:	INC	E
+	BIT	3,E
+	RET	NZ
+	PUSH	DE
+	CALL	CMOS_SHUT1
+	POP	DE
+	JR	CMOS_SHUT0
+;
+CMOS_SHUTIT:	CALL	CMOS_FIND1
+	JR	NZ,CMOS_SHUT2
+	JP	CMOS_CHANER
+;
+CMOS_SESHUT:	LD	HL,CMOS_FLAGS
+	RES	0,(HL)			;STOP EXEC
+	RES	1,(HL)			;STOP SPOOL
+	LD	E,8			;SPOOL/EXEC CHANNEL
+CMOS_SHUT1:	CALL	CMOS_FIND1
+	RET	Z
+CMOS_SHUT2:	XOR	A
+	LD	(HL),A
+	DEC	HL
+	LD	(HL),A
+	LD	HL,37
+	ADD	HL,DE
+	BIT	7,(HL)
+	INC	HL
+	CALL	NZ,CMOS_WRITE
+	LD	HL,CMOS_FCBSIZ
+	ADD	HL,DE
+	LD	BC,(FREE)
+	SBC	HL,BC
+	JR	NZ,CMOS_CLOSE
+	LD	(FREE),DE		;RELEASE SPACE
+	JR	CMOS_CLOSE
+;
+;TYPE - *TYPE command.
+;Types file to console output.
+;
+CMOS_TYPE:	SCF	;*TYPE
+	CALL	OSOPEN
+	OR	A
+	JR	Z,CMOS_NOTFND
+	LD	E,A
+CMOS_TYPE1:	LD	A,(CMOS_FLAGS)		;TEST
+	BIT	7,A			;FOR
+	JR	NZ,CMOS_TYPESC		;ESCape
+	CALL	OSBGET
+	CALL	OSWRCH			;N.B. CALLS "TEST"
+	JR	NC,CMOS_TYPE1
+	JR	OSSHUT
+;
+CMOS_TYPESC:	CALL	OSSHUT			;CLOSE!
+	JP	CMOS_ABORT
+;
+;OSLOAD - Load an area of memory from a file.
+;   Inputs: HL addresses filename (term CR)
+;           DE = address at which to load
+;           BC = maximum allowed size (bytes)
+;  Outputs: Carry reset indicates no room for file.
+; Destroys: A,B,C,D,E,H,L,F
+;
+CMOS_STLOAD:	CALL	CMOS_SAVLOD			;*LOAD
+	PUSH	HL
+	JR	CMOS_OSL1
+;
+OSLOAD:	PUSH	BC			;LOAD
+	CALL	CMOS_SETUP0
+CMOS_OSL1:	EX	DE,HL
+	CALL	CMOS_OPEN
+	JR	NZ,CMOS_LOAD0
+CMOS_NOTFND:	LD	A,214
+	CALL	EXTERR
+	DEFM	'File not found'
+	DEFB	0
+CMOS_LOAD:	CALL	CMOS_READ
+	JR	NZ,CMOS_LOAD1
+	CALL	CMOS_INCSEC
+	ADD	HL,BC
+CMOS_LOAD0:	EX	(SP),HL
+	SBC	HL,BC
+	EX	(SP),HL
+	JR	NC,CMOS_LOAD
+CMOS_LOAD1:	POP	BC
+	PUSH	AF
+	CALL	CMOS_CLOSE
+	POP	AF
+	CCF
+OSCALL:	RET
+;
+;OSOPEN - Open a file for reading or writing.
+;   Inputs: HL addresses filename (term CR)
+;           Carry set for OPENIN, cleared for OPENOUT.
+;  Outputs: A = file channel (=0 if cannot open)
+;           DE = file FCB
+; Destroys: A,B,C,D,E,H,L,F
+;
+CMOS_OPENIT:	PUSH	AF			;SAVE CARRY
+	CALL	CMOS_SETUP0
+	POP	AF
+	CALL	NC,CMOS_CREATE
+	CALL	C,CMOS_OPEN
+	RET
+;
+OSOPEN:	CALL	CMOS_OPENIT
+	RET	Z			;ERROR
+	LD	B,7			;MAX. NUMBER OF FILES
+	LD	HL,CMOS_TABLE+15
+CMOS_OPEN1:	LD	A,(HL)
+	DEC	HL
+	OR	(HL)
+	JR	Z,CMOS_OPEN2			;FREE CHANNEL
+	DEC	HL
+	DJNZ	CMOS_OPEN1
+	LD	A,192
+	CALL	EXTERR
+	DEFM	'Too many open files'
+	DEFB	0
+;
+CMOS_OPEN2:	LD	DE,(FREE)		;FREE SPACE POINTER
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	LD	A,B			;CHANNEL (1-7)
+	LD	HL,CMOS_FCBSIZ
+	ADD	HL,DE			;RESERVE SPACE
+	LD	(FREE),HL
+CMOS_OPEN3:	LD	HL,CMOS_FCB			;ENTRY FROM SPOOL/EXEC
+	PUSH	DE
+	LD	BC,36
+	LDIR	;COPY FCB
+	EX	DE,HL
+	INC	HL
+	LD	(HL),C			;CLEAR PTR
+	INC	HL
+	POP	DE
+	LD	B,A
+	CALL	CMOS_RDF			;READ OR FILL
+	LD	A,B
+	JP	CHECK
+;
+;OSBPUT - Write a byte to a random disk file.
+;   Inputs: E = file channel
+;           A = byte to write
+; Destroys: A,B,C,F
+;
+OSBPUT:	PUSH	DE
+	PUSH	HL
+	LD	B,A
+	CALL	CMOS_FIND
+	LD	A,B
+	LD	B,0
+	DEC	HL
+	LD	(HL),B			;CLEAR EOF
+	INC	HL
+	LD	C,(HL)
+	RES	7,C
+	SET	7,(HL)
+	INC	(HL)
+	INC	HL
+	PUSH	HL
+	ADD	HL,BC
+	LD	(HL),A
+	POP	HL
+	CALL	Z,CMOS_WRRDF			;WRITE THEN READ/FILL
+	POP	HL
+	POP	DE
+	RET
+;
+;OSBGET - Read a byte from a random disk file.
+;   Inputs: E = file channel
+;  Outputs: A = byte read
+;           Carry set if LAST BYTE of file
+; Destroys: A,B,C,F
+;
+OSBGET:	PUSH	DE
+	PUSH	HL
+	CALL	CMOS_FIND
+	LD	C,(HL)
+	RES	7,C
+	INC	(HL)
+	INC	HL
+	PUSH	HL
+	LD	B,0
+	ADD	HL,BC
+	LD	B,(HL)
+	POP	HL
+	CALL	PE,CMOS_INCRDF		;INC SECTOR THEN READ
+	CALL	Z,CMOS_WRRDF			;WRITE THEN READ/FILL
+	LD	A,B
+	POP	HL
+	POP	DE
+	RET
+;
+;OSSTAT - Read file status.
+;   Inputs: E = file channel
+;  Outputs: Z flag set - EOF
+;           (If Z then A=0)
+;           DE = address of file block.
+; Destroys: A,D,E,H,L,F
+;
+OSSTAT:	CALL	CMOS_FIND
+	DEC	HL
+	LD	A,(HL)
+	INC	A
+	RET
+;
+;GETEXT - Find file size.
+;   Inputs: E = file channel
+;  Outputs: DEHL = file size (0-&800000)
+; Destroys: A,B,C,D,E,H,L,F
+;
+GETEXT:	CALL	CMOS_FIND
+	EX	DE,HL
+	LD	DE,CMOS_FCB
+	LD	BC,36
+	PUSH	DE
+	LDIR	;COPY FCB
+	EX	DE,HL
+	EX	(SP),HL
+	EX	DE,HL
+	LD	A,35
+	CALL	CMOS_BDOS1			;COMPUTE SIZE
+	POP	HL
+	XOR	A
+	JR	CMOS_GETPT1
+;
+;GETPTR - Return file pointer.
+;   Inputs: E = file channel
+;  Outputs: DEHL = pointer (0-&7FFFFF)
+; Destroys: A,B,C,D,E,H,L,F
+;
+GETPTR:	CALL	CMOS_FIND
+	LD	A,(HL)
+	ADD	A,A
+	DEC	HL
+CMOS_GETPT1:	DEC	HL
+	LD	D,(HL)
+	DEC	HL
+	LD	E,(HL)
+	DEC	HL
+	LD	H,(HL)
+	LD	L,A
+	SRL	D
+	RR	E
+	RR	H
+	RR	L
+	RET
+;
+;PUTPTR - Update file pointer.
+;   Inputs: A = file channel
+;           DEHL = new pointer (0-&7FFFFF)
+; Destroys: A,B,C,D,E,H,L,F
+;
+PUTPTR:	LD	D,L
+	ADD	HL,HL
+	RL	E
+	LD	B,E
+	LD	C,H
+	LD	E,A			;CHANNEL
+	PUSH	DE
+	CALL	CMOS_FIND
+	POP	AF
+	AND	7FH
+	BIT	7,(HL)			;PENDING WRITE?
+	JR	Z,CMOS_PUTPT1
+	OR	80H
+CMOS_PUTPT1:	LD	(HL),A
+	PUSH	DE
+	PUSH	HL
+	DEC	HL
+	DEC	HL
+	DEC	HL
+	LD	D,(HL)
+	DEC	HL
+	LD	E,(HL)
+	EX	DE,HL
+	OR	A
+	SBC	HL,BC
+	POP	HL
+	POP	DE
+	RET	Z
+	INC	HL
+	OR	A
+	CALL	M,CMOS_WRITE
+	PUSH	HL
+	DEC	HL
+	DEC	HL
+	DEC	HL
+	LD	(HL),0
+	DEC	HL
+	LD	(HL),B
+	DEC	HL
+	LD	(HL),C			;NEW RECORD NO.
+	POP	HL
+	JR	CMOS_RDF
+;
+;WRRDF - Write, read; if EOF fill with zeroes.
+;RDF - Read; if EOF fill with zeroes.
+;   Inputs: DE address FCB.
+;           HL addresses data buffer.
+;  Outputs: A=0, Z-flag set.
+;           Carry set if fill done (EOF)
+; Destroys: A,H,L,F
+;
+CMOS_WRRDF:	CALL	CMOS_WRITE
+CMOS_RDF:	CALL	CMOS_READ
+	DEC	HL
+	RES	7,(HL)
+	DEC	HL
+	LD	(HL),A			;CLEAR EOF FLAG
+	RET	Z
+	LD	(HL),-1			;SET EOF FLAG
+	INC	HL
+	INC	HL
+	PUSH	BC
+	XOR	A
+	LD	B,128
+CMOS_FILL:	LD	(HL),A
+	INC	HL
+	DJNZ	CMOS_FILL
+	POP	BC
+	SCF
+	RET
+;
+;INCRDF - Increment record, read; if EOF fill.
+;   Inputs: DE addresses FCB.
+;           HL addresses data buffer.
+;  Outputs: A=1, Z-flag reset.
+;           Carry set if fill done (EOF)
+; Destroys: A,H,L,F
+;
+CMOS_INCRDF:	CALL	CMOS_INCSEC
+	CALL	CMOS_RDF
+	INC	A
+	RET
+;
+;READ - Read a record from a disk file.
+;   Inputs: DE addresses FCB.
+;           HL = address to store data.
+;  Outputs: A<>0 & Z-flag reset indicates EOF.
+;           Carry = 0
+; Destroys: A,F
+;
+;BDOS1 - CP/M BDOS call.
+;   Inputs: A = function number
+;          DE = parameter
+;  Outputs: AF = result (carry=0)
+; Destroys: A,F
+;
+CMOS_READ:	CALL	CMOS_SETDMA
+	LD	A,33
+CMOS_BDOS1:	CALL	CMOS_BDOS0
+	JR	NZ,CMOS_CPMERR
+	OR	A
+	RET
+CMOS_CPMERR:	LD	A,255
+	CALL	EXTERR
+	DEFM	'CP/M Error'
+	DEFB	0
+;
+CMOS_BDOS0:	PUSH	BC
+	PUSH	DE
+	PUSH	HL
+	PUSH	IX
+	PUSH	IY
+	LD	C,A
+	CALL	CMOS_BDOS
+	INC	H
+	DEC	H
+	POP	IY
+	POP	IX
+	POP	HL
+	POP	DE
+	POP	BC
+	RET
+;
+;WRITE - Write a record to a disk file.
+;   Inputs: DE addresses FCB.
+;           HL = address to get data.
+; Destroys: A,F
+;
+CMOS_WRITE:	CALL	CMOS_SETDMA
+	LD	A,40
+	CALL	CMOS_BDOS1
+	JR	Z,CMOS_INCSEC
+	LD	A,198
+	CALL	EXTERR
+	DEFM	'Disk full'
+	DEFB	0
+;
+;INCSEC - Increment random record number.
+;   Inputs: DE addresses FCB.
+; Destroys: F
+;
+CMOS_INCSEC:	PUSH	HL
+	LD	HL,33
+	ADD	HL,DE
+CMOS_INCS1:	INC	(HL)
+	INC	HL
+	JR	Z,CMOS_INCS1
+	POP	HL
+	RET
+;
+;OPEN - Open a file for access.
+;   Inputs: FCB set up.
+;  Outputs: DE = FCB
+;           A=0 & Z-flag set indicates Not Found.
+;           Carry = 0
+; Destroys: A,D,E,F
+;
+CMOS_OPEN:	LD	DE,CMOS_FCB
+	LD	A,15
+	CALL	CMOS_BDOS1
+	INC	A
+	RET
+;
+;CREATE - Create a disk file for writing.
+;   Inputs: FCB set up.
+;  Outputs: DE = FCB
+;           A=0 & Z-flag set indicates directory full.
+;           Carry = 0
+; Destroys: A,D,E,F
+;
+CMOS_CREATE:	CALL	CMOS_CHKAMB
+	LD	DE,CMOS_FCB
+	LD	A,19
+	CALL	CMOS_BDOS1			;DELETE
+	LD	A,22
+	CALL	CMOS_BDOS1			;MAKE
+	INC	A
+	RET
+;
+;CHKAMB - Check for ambiguous filename.
+; Destroys: A,D,E,F
+;
+CMOS_CHKAMB:	PUSH	BC
+	LD	DE,CMOS_FCB
+	LD	B,12
+CMOS_CHKAM1:	LD	A,(DE)
+	CP	'?'
+	JR	Z,CMOS_AMBIG			;AMBIGUOUS
+	INC	DE
+	DJNZ	CMOS_CHKAM1
+	POP	BC
+	RET
+CMOS_AMBIG:	LD	A,204
+	CALL	EXTERR
+	DEFM	'Bad name'
+	DEFB	0
+;
+;SETDMA - Set "DMA" address.
+;   Inputs: HL = address
+; Destroys: A,F
+;
+CMOS_SETDMA:	LD	A,26
+	EX	DE,HL
+	CALL	CMOS_BDOS0
+	EX	DE,HL
+	RET
+;
+;FIND - Find file parameters from channel.
+;   Inputs: E = channel
+;  Outputs: DE addresses FCB
+;           HL addresses pointer byte (FCB+37)
+; Destroys: A,D,E,H,L,F
+;
+CMOS_FIND:	INC	E			;N.B. channel 8 is SPOOL/EXEC
+	DEC	E
+	JR	Z,CMOS_CHANER
+	CALL	CMOS_FIND1
+	LD	HL,37
+	ADD	HL,DE
+	RET	NZ
+CMOS_CHANER:	LD	A,222
+	CALL	EXTERR
+	DEFM	'Invalid channel'
+	DEFB	0
+;
+;FIND1 - Look up file table.
+;   Inputs: E = channel
+;  Outputs: Z-flag set = file not opened
+;           If NZ, DE addresses FCB
+;                  HL points into table
+; Destroys: A,D,E,H,L,F
+;
+CMOS_FIND1:	LD	A,E
+	AND	7
+	ADD	A,A
+	LD	E,A
+	LD	D,0
+	LD	HL,CMOS_TABLE
+	ADD	HL,DE
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	LD	A,D
+	OR	E
+	RET
+;
+;SETUP - Set up File Control Block.
+;   Inputs: HL addresses filename
+;           Format  [A:]FILENAME[.EXT]
+;           Device defaults to current drive
+;           Extension defaults to .BBC
+;           A = fill character
+;  Outputs: HL updated
+;           A = terminator
+;           BC = 128
+; Destroys: A,B,C,H,L,F
+;
+;FCB FORMAT (36 BYTES TOTAL):
+; 0      0=SAME DISK, 1=DISK A, 2=DISK B (ETC.)
+; 1-8    FILENAME, PADDED WITH SPACES
+; 9-11   EXTENSION, PADDED WITH SPACES
+; 12     CURRENT EXTENT, SET TO ZERO
+; 32-35  CLEARED TO ZERO
+;
+CMOS_SETUP0:	LD	A,' '
+CMOS_SETUP:	PUSH	DE
+	PUSH	HL
+	LD	DE,CMOS_FCB+9
+	LD	HL,CMOS_BBC
+	LD	BC,3
+	LDIR
+	LD	HL,CMOS_FCB+32
+	LD	B,4
+CMOS_SETUP1:	LD	(HL),C
+	INC	HL
+	DJNZ	CMOS_SETUP1
+	POP	HL
+	LD	C,A
+	XOR	A
+	LD	(DE),A
+	POP	DE
+	CALL	CMOS_SKIPSP
+	CP	'"'
+	JR	NZ,CMOS_SETUP2
+	INC	HL
+	CALL	CMOS_SKIPSP
+	CALL	CMOS_SETUP2
+	CP	'"'
+	INC	HL
+	JR	Z,CMOS_SKIPSP
+CMOS_BADSTR:	LD	A,253
+	CALL	EXTERR
+	DEFM	'Bad string'
+	DEFB	0
+;
+CMOS_PARSE:	LD	A,(HL)
+	INC	HL
+	CP	'`'
+	RET	NC
+	CP	'?'
+	RET	C
+	XOR	40H
+	RET
+;
+CMOS_SETUP2:	PUSH	DE
+	INC	HL
+	LD	A,(HL)
+	CP	':'
+	DEC	HL
+	LD	A,B
+	JR	NZ,CMOS_DEVICE
+	LD	A,(HL)			;DRIVE
+	AND	31
+	INC	HL
+	INC	HL
+CMOS_DEVICE:	LD	DE,CMOS_FCB
+	LD	(DE),A
+	INC	DE
+	LD	B,8
+CMOS_COPYF:	LD	A,(HL)
+	CP	'.'
+	JR	Z,CMOS_COPYF1
+	CP	' '
+	JR	Z,CMOS_COPYF1
+	CP	CMOS_CR
+	JR	Z,CMOS_COPYF1
+	CP	'='
+	JR	Z,CMOS_COPYF1
+	CP	'"'
+	JR	Z,CMOS_COPYF1
+	LD	C,'?'
+	CP	'*'
+	JR	Z,CMOS_COPYF1
+	LD	C,' '
+	INC	HL
+	CP	'|'
+	JR	NZ,CMOS_COPYF2
+	CALL	CMOS_PARSE
+	JR	CMOS_COPYF0
+CMOS_COPYF1:	LD	A,C
+CMOS_COPYF2:	CALL	CMOS_UPPRC
+CMOS_COPYF0:	LD	(DE),A
+	INC	DE
+	DJNZ	CMOS_COPYF
+CMOS_COPYF3:	LD	A,(HL)
+	INC	HL
+	CP	'*'
+	JR	Z,CMOS_COPYF3
+	CP	'.'
+	LD	BC,3*256+' '
+	LD	DE,CMOS_FCB+9
+	JR	Z,CMOS_COPYF
+	DEC	HL
+	POP	DE
+	LD	BC,128
+CMOS_SKIPSP:	LD	A,(HL)
+	CP	' '
+	RET	NZ
+	INC	HL
+	JR	CMOS_SKIPSP
+;
+CMOS_BBC:	DEFM	'BBC'
+;
+;HEX - Read a hex string and convert to binary.
+;   Inputs: HL = text pointer
+;  Outputs: HL = updated text pointer
+;           DE = value
+;            A = terminator (spaces skipped)
+; Destroys: A,D,E,H,L,F
+;
+CMOS_HEX:	LD	DE,0			;INITIALISE
+	CALL	CMOS_SKIPSP
+CMOS_HEX1:	LD	A,(HL)
+	CALL	CMOS_UPPRC
+	CP	'0'
+	JR	C,CMOS_SKIPSP
+	CP	'9'+1
+	JR	C,CMOS_HEX2
+	CP	'A'
+	JR	C,CMOS_SKIPSP
+	CP	'F'+1
+	JR	NC,CMOS_SKIPSP
+	SUB	7
+CMOS_HEX2:	AND	0FH
+	EX	DE,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	EX	DE,HL
+	OR	E
+	LD	E,A
+	INC	HL
+	JR	CMOS_HEX1
+;
+;OSCLI - Process an "operating system" command
+;
+OSCLI:	CALL	CMOS_SKIPSP
+	CP	CMOS_CR
+	RET	Z
+	CP	'|'
+	RET	Z
+	CP	'.'
+	JP	Z,CMOS_DOT			;*.
+	EX	DE,HL
+	LD	HL,CMOS_COMDS
+CMOS_OSCLI0:	LD	A,(DE)
+	CALL	CMOS_UPPRC
+	CP	(HL)
+	JR	Z,CMOS_OSCLI2
+	JR	C,CMOS_HUH
+CMOS_OSCLI1:	BIT	7,(HL)
+	INC	HL
+	JR	Z,CMOS_OSCLI1
+	INC	HL
+	INC	HL
+	JR	CMOS_OSCLI0
+;
+CMOS_OSCLI2:	PUSH	DE
+CMOS_OSCLI3:	INC	DE
+	INC	HL
+	LD	A,(DE)
+	CALL	CMOS_UPPRC
+	CP	'.'			;ABBREVIATED?
+	JR	Z,CMOS_OSCLI4
+	XOR	(HL)
+	JR	Z,CMOS_OSCLI3
+	CP	80H
+	JR	Z,CMOS_OSCLI4
+	POP	DE
+	JR	CMOS_OSCLI1
+;
+CMOS_OSCLI4:	POP	AF
+	INC	DE
+CMOS_OSCLI5:	BIT	7,(HL)
+	INC	HL
+	JR	Z,CMOS_OSCLI5
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A
+	PUSH	HL
+	EX	DE,HL
+	JP	CMOS_SKIPSP
+;
+;
+CMOS_ERA:	CALL	CMOS_SETUP0			;*ERA, *ERASE
+	LD	C,19
+	JR	CMOS_XEQ			;"DELETE"
+;
+CMOS_RES:	LD	C,13			;*RESET
+	JR	CMOS_XEQ			;"RESET"
+;
+CMOS_DRV:	CALL	CMOS_SETUP0			;*DRIVE
+	LD	A,(CMOS_FCB)
+	DEC	A
+	JP	M,CMOS_HUH
+	LD	E,A
+	LD	C,14
+	JR	CMOS_XEQ0
+;
+CMOS_REN:	CALL	CMOS_SETUP0			;*REN, *RENAME
+	CP	'='
+	JR	NZ,CMOS_HUH
+	INC	HL			;SKIP "="
+	PUSH	HL
+	CALL	CMOS_EXISTS
+	LD	HL,CMOS_FCB
+	LD	DE,CMOS_FCB+16
+	LD	BC,12
+	LDIR
+	POP	HL
+	CALL	CMOS_SETUP0
+	CALL	CMOS_CHKAMB
+	LD	C,23
+CMOS_XEQ:	LD	DE,CMOS_FCB
+CMOS_XEQ0:	LD	A,(HL)
+	CP	CMOS_CR
+	JR	NZ,CMOS_HUH
+CMOS_BDC:	LD	A,C
+	CALL	CMOS_BDOS1
+	RET	P
+CMOS_HUH:	LD	A,254
+	CALL	EXTERR
+	DEFM	'Bad command'
+	DEFB	0
+;
+CMOS_EXISTS:	LD	HL,CMOS_DSKBUF
+	CALL	CMOS_SETDMA
+	LD	DE,CMOS_FCB
+	LD	A,17
+	CALL	CMOS_BDOS1			;SEARCH
+	INC	A
+	RET	Z
+	LD	A,196
+	CALL	EXTERR
+	DEFM	'File exists'
+	DEFB	0
+;
+CMOS_SAVLOD:	CALL	CMOS_SETUP0			;PART OF *SAVE, *LOAD
+	CALL	CMOS_HEX
+	CP	'+'
+	PUSH	AF
+	PUSH	DE
+	JR	NZ,CMOS_SAVLO1
+	INC	HL
+CMOS_SAVLO1:	CALL	CMOS_HEX
+	CP	CMOS_CR
+	JR	NZ,CMOS_HUH
+	EX	DE,HL
+	POP	DE
+	POP	AF
+	RET	Z
+	OR	A
+	SBC	HL,DE
+	RET	NZ
+	JR	CMOS_HUH
+;
+CMOS_DOT:	INC	HL
+CMOS_DIR:	LD	A,'?'			;*DIR
+	CALL	CMOS_SETUP
+	CP	CMOS_CR
+	JR	NZ,CMOS_HUH
+	LD	C,17
+CMOS_DIR0:	LD	B,4
+CMOS_DIR1:	CALL	LTRAP
+	LD	DE,CMOS_FCB
+	LD	HL,CMOS_DSKBUF
+	CALL	CMOS_SETDMA
+	LD	A,C
+	CALL	CMOS_BDOS1			;SEARCH DIRECTORY
+	JP	M,CRLF
+	RRCA
+	RRCA
+	RRCA
+	AND	60H
+	LD	E,A
+	LD	D,0
+	LD	HL,CMOS_DSKBUF+1
+	ADD	HL,DE
+	PUSH	HL
+	LD	DE,8
+	ADD	HL,DE
+	LD	E,(HL)
+	INC	HL
+	BIT	7,(HL)			;SYSTEM FILE?
+	POP	HL
+	LD	C,18
+	JR	NZ,CMOS_DIR1
+	PUSH	BC
+	LD	A,(CMOS_FCB)
+	DEC	A
+	LD	C,25
+	CALL	M,CMOS_BDC
+	ADD	A,'A'
+	CALL	OSWRCH
+	LD	B,8
+	LD	A,' '
+	BIT	7,E			;READ ONLY?
+	JR	Z,CMOS_DIR3
+	LD	A,'*'
+CMOS_DIR3:	CALL	CMOS_CPTEXT
+	LD	B,3
+	LD	A,' '
+	CALL	CMOS_SPTEXT
+	POP	BC
+	DJNZ	CMOS_DIR2
+	CALL	CRLF
+	JR	CMOS_DIR0
+;
+CMOS_DIR2:	PUSH	BC
+	LD	B,5
+CMOS_PAD:	LD	A,' '
+	CALL	OSWRCH
+	DJNZ	CMOS_PAD
+	POP	BC
+	JR	CMOS_DIR1
+;
+CMOS_OPT:	CALL	CMOS_HEX			;*OPT
+	LD	A,E
+	AND	3
+CMOS_SETOPT:	LD	(CMOS_OPTVAL),A
+	RET
+;
+RESET:	XOR	A
+	JR	CMOS_SETOPT
+;
+CMOS_EXEC:	LD	A,00000001B		;*EXEC
+	DEFB	1			;SKIP 2 BYTES (LD BC)
+CMOS_SPOOL:	LD	A,00000010B		;*SPOOL
+	PUSH	AF
+	PUSH	HL
+	CALL	CMOS_SESHUT			;STOP SPOOL/EXEC
+	POP	HL
+	POP	BC
+	LD	A,(HL)
+	CP	CMOS_CR			;JUST SHUT?
+	RET	Z
+	LD	A,(CMOS_FLAGS)
+	OR	B
+	LD	(CMOS_FLAGS),A		;SPOOL/EXEC FLAG
+	RRA	;CARRY=1 FOR EXEC
+	CALL	CMOS_OPENIT			;OPEN SPOOL/EXEC FILE
+	RET	Z			;DIR FULL / NOT FOUND
+	POP	IX			;RETURN ADDRESS
+	LD	HL,(HIMEM)
+	OR	A
+	SBC	HL,SP			;SP=HIMEM?
+	ADD	HL,SP
+	JR	NZ,CMOS_JPIX			;ABORT
+	LD	BC,-CMOS_FCBSIZ
+	ADD	HL,BC			;HL=HL-FCBSIZ
+	LD	(HIMEM),HL		;NEW HIMEM
+	LD	(CMOS_TABLE),HL		;FCB/BUFFER
+	LD	SP,HL			;NEW SP
+	EX	DE,HL
+	CALL	CMOS_OPEN3			;FINISH OPEN OPERATION
+CMOS_JPIX:	JP	(IX)			;"RETURN"
+;
+CMOS_UPPRC:	AND	7FH
+	CP	'`'
+	RET	C
+	AND	5FH			;CONVERT TO UPPER CASE
+	RET
+;
+CMOS_HELP:	LD	B,32
+	LD	HL,VERMSG
+	JP	CMOS_PTEXT
+;
+;*ESC COMMAND
+;
+CMOS_ESCCTL:	LD	A,(HL)
+	CALL	CMOS_UPPRC			;**
+	CP	'O'
+	JR	NZ,CMOS_ESCC1
+	INC	HL
+CMOS_ESCC1:	CALL	CMOS_HEX
+	LD	A,E
+	OR	A
+	LD	HL,CMOS_FLAGS
+	RES	6,(HL)			;ENABLE ESCAPE
+	RET	Z
+	SET	6,(HL)			;DISABLE ESCAPE
+	RET
+;
+;
+CMOS_COMDS:	DEFM	'BY'
+	DEFB	'E'+80H
+	DEFW	BYE
+	DEFM	'DI'
+	DEFB	'R'+80H
+	DEFW	CMOS_DIR
+	DEFM	'DRIV'
+	DEFB	'E'+80H
+	DEFW	CMOS_DRV
+	DEFM	'ERAS'
+	DEFB	'E'+80H
+	DEFW	CMOS_ERA
+	DEFM	'ER'
+	DEFB	'A'+80H
+	DEFW	CMOS_ERA
+	DEFM	'ES'
+	DEFB	'C'+80H
+	DEFW	CMOS_ESCCTL
+	DEFM	'EXE'
+	DEFB	'C'+80H
+	DEFW	CMOS_EXEC
+	DEFM	'HEL'
+	DEFB	'P'+80H
+	DEFW	CMOS_HELP
+	DEFM	'LOA'
+	DEFB	'D'+80H
+	DEFW	CMOS_STLOAD
+	DEFM	'OP'
+	DEFB	'T'+80H
+	DEFW	CMOS_OPT
+	DEFM	'QUI'
+	DEFB	'T'+80H
+	DEFW	BYE
+	DEFM	'RENAM'
+	DEFB	'E'+80H
+	DEFW	CMOS_REN
+	DEFM	'RE'
+	DEFB	'N'+80H
+	DEFW	CMOS_REN
+	DEFM	'RESE'
+	DEFB	'T'+80H
+	DEFW	CMOS_RES
+	DEFM	'SAV'
+	DEFB	'E'+80H
+	DEFW	CMOS_STSAVE
+	DEFM	'SPOO'
+	DEFB	'L'+80H
+	DEFW	CMOS_SPOOL
+	DEFM	'TYP'
+	DEFB	'E'+80H
+	DEFW	CMOS_TYPE
+	DEFB	0FFH
+;
+;PTEXT - Print text
+;   Inputs: HL = address of text
+;            B = number of characters to print
+; Destroys: A,B,H,L,F
+;
+CMOS_CPTEXT:	PUSH	AF
+	LD	A,':'
+	CALL	OSWRCH
+	POP	AF
+CMOS_SPTEXT:	CALL	OSWRCH
+CMOS_PTEXT:	LD	A,(HL)
+	AND	7FH
+	INC	HL
+	CALL	OSWRCH
+	DJNZ	CMOS_PTEXT
+	RET
+;
+;OSINIT - Initialise RAM mapping etc.
+;If BASIC is entered by BBCBASIC FILENAME then file
+;FILENAME.BBC is automatically CHAINed.
+;   Outputs: DE = initial value of HIMEM (top of RAM)
+;            HL = initial value of PAGE (user program)
+;            Z-flag reset indicates AUTO-RUN.
+;  Destroys: A,B,C,D,E,H,L,F
+;
+OSINIT:	LD	C,45			;*
+	LD	E,254			;*
+	CALL	CMOS_BDOS			;*
+	XOR	A
+	LD	B,CMOS_INILEN
+	LD	HL,CMOS_TABLE
+CMOS_CLRTAB:	LD	(HL),A			;CLEAR FILE TABLE ETC.
+	INC	HL
+	DJNZ	CMOS_CLRTAB
+	LD	DE,ACCS
+	LD	HL,CMOS_DSKBUF
+	LD	C,(HL)
+	INC	HL
+	CP	C			;N.B. A=B=0
+	JR	Z,CMOS_NOBOOT
+	LDIR	;COPY TO ACCS
+CMOS_NOBOOT:	EX	DE,HL
+	LD	(HL),CMOS_CR
+	LD	DE,(6)			;DE = HIMEM
+	LD	E,A			;PAGE BOUNDARY
+	LD	HL,USER
+	RET
+;
+;
+;TRAP - Test ESCAPE flag and abort if set;
+;       every 20th call, test for keypress.
+; Destroys: A,H,L,F
+;
+;LTRAP - Test ESCAPE flag and abort if set.
+; Destroys: A,F
+;
+TRAP:	LD	HL,CMOS_TRPCNT
+	DEC	(HL)
+	CALL	Z,CMOS_TEST20		;TEST KEYBOARD
+LTRAP:	LD	A,(CMOS_FLAGS)		;ESCAPE FLAG
+	OR	A			;TEST
+	RET	P
+CMOS_ABORT:	LD	HL,CMOS_FLAGS		;ACKNOWLEDGE
+	RES	7,(HL)			;ESCAPE
+	JP	ESCAPE			;AND ABORT
+;
+;TEST - Sample for ESCape and CTRL/S. If ESCape
+;       pressed set ESCAPE flag and return.
+; Destroys: A,F
+;
+CMOS_TEST20:	LD	(HL),20
+CMOS_TEST:	PUSH	DE
+	LD	A,6
+	LD	E,0FFH
+	CALL	CMOS_BDOS0
+	POP	DE
+	OR	A
+	RET	Z
+	CP	'S' AND 1FH		;PAUSE DISPLAY?
+	JR	Z,OSRDCH
+	CP	CMOS_ESC
+	JR	Z,CMOS_ESCSET
+	LD	(CMOS_INKEY),A
+	RET
+;
+;OSRDCH - Read from the current input stream (keyboard).
+;  Outputs: A = character
+; Destroys: A,F
+;
+CMOS_KEYGET:	LD	B,(IX-12)		;SCREEN WIDTH
+	CALL	OSRDCH
+	CP	CMOS_DEL
+	JR	Z,CMOS_KEYDEL
+	CP	224
+	RET	NZ
+	CALL	OSRDCH
+	SUB	65
+	RET
+;
+CMOS_KEYDEL:	LD	A,CMOS_BS
+	RET
+;
+OSRDCH:	LD	A,(CMOS_FLAGS)
+	RRA	;*EXEC ACTIVE?
+	JR	C,CMOS_EXECIN
+	PUSH	HL
+	SBC	HL,HL			;HL=0
+	CALL	OSKEY
+	POP	HL
+	RET	C
+	JR	OSRDCH
+;
+;EXECIN - Read byte from EXEC file
+;  Outputs: A = byte read
+; Destroys: A,F
+;
+CMOS_EXECIN:	PUSH	BC			;SAVE REGISTERS
+	PUSH	DE
+	PUSH	HL
+	LD	E,8			;SPOOL/EXEC CHANNEL
+	LD	HL,CMOS_FLAGS
+	RES	0,(HL)
+	CALL	OSBGET
+	SET	0,(HL)
+	PUSH	AF
+	CALL	C,CMOS_SESHUT		;END EXEC IF EOF
+	POP	AF
+	POP	HL			;RESTORE REGISTERS
+	POP	DE
+	POP	BC
+	RET
+;
+;
+;OSKEY - Read key with time-limit, test for ESCape.
+;Main function is carried out in user patch.
+;   Inputs: HL = time limit (centiseconds)
+;  Outputs: Carry reset if time-out
+;           If carry set A = character
+; Destroys: A,H,L,F
+;
+OSKEY:	PUSH	HL
+	LD	HL,CMOS_INKEY
+	LD	A,(HL)
+	LD	(HL),0
+	POP	HL
+	OR	A
+	SCF
+	RET	NZ
+	PUSH	DE
+	CALL	GETKEY
+	POP	DE
+	RET	NC
+	CP	CMOS_ESC
+	SCF
+	RET	NZ
+CMOS_ESCSET:	PUSH	HL
+	LD	HL,CMOS_FLAGS
+	BIT	6,(HL)			;ESC DISABLED?
+	JR	NZ,CMOS_ESCDIS
+	SET	7,(HL)			;SET ESCAPE FLAG
+CMOS_ESCDIS:	POP	HL
+	RET
+;
+;OSWRCH - Write a character to console output.
+;   Inputs: A = character.
+; Destroys: Nothing
+;
+OSWRCH:	PUSH	AF
+	PUSH	DE
+	PUSH	HL
+	LD	E,A
+	CALL	CMOS_TEST
+	CALL	CMOS_EDPUT
+	POP	HL
+	POP	DE
+	POP	AF
+	RET
+;
+CMOS_EDPUT:	LD	A,(CMOS_FLAGS)
+	BIT	3,A
+	JR	Z,CMOS_WRCH
+	LD	A,E
+	CP	' '
+	RET	C
+	LD	HL,(CMOS_EDPTR)
+	LD	(HL),E
+	INC	L
+	RET	Z
+	LD	(CMOS_EDPTR),HL
+	RET
+;
+PROMPT:	LD	E,'>'
+CMOS_WRCH:	LD	A,(CMOS_OPTVAL)		;FAST ENTRY
+	ADD	A,3
+	CP	3
+	JR	NZ,CMOS_WRCH1
+	ADD	A,E
+	LD	A,2
+	JR	C,CMOS_WRCH1
+	LD	A,6
+CMOS_WRCH1:	CALL	CMOS_BDOS0
+	LD	HL,CMOS_FLAGS
+	BIT	2,(HL)
+	LD	A,5			;PRINTER O/P
+	CALL	NZ,CMOS_BDOS0
+	BIT	1,(HL)			;SPOOLING?
+	RET	Z
+	RES	1,(HL)
+	LD	A,E			;BYTE TO WRITE
+	LD	E,8			;SPOOL/EXEC CHANNEL
+	PUSH	BC
+	CALL	OSBPUT
+	POP	BC
+	SET	1,(HL)
+	RET
+;
+CMOS_TOGGLE:	LD	BC,0
+	LD	A,(CMOS_FLAGS)
+	XOR	00000100B
+	LD	(CMOS_FLAGS),A
+	RET
+;
+CMOS_INSERT:	LD	A,(CMOS_FLAGS)
+	XOR	00010000B
+	LD	(CMOS_FLAGS),A
+	RET
+;
+;OSLINE - Read/edit a complete line, terminated by CR.
+;   Inputs: HL addresses destination buffer.
+;           (L=0)
+;  Outputs: Buffer filled, terminated by CR.
+;           A=0.
+; Destroys: A,B,C,D,E,H,L,F
+;
+OSLINE:	LD	IX,200H
+	LD	A,(CMOS_FLAGS)
+	BIT	3,A			;EDIT MODE?
+	JR	Z,CMOS_OSLIN1
+	RES	3,A
+	LD	(CMOS_FLAGS),A
+	LD	HL,(CMOS_EDPTR)
+	CP	L
+CMOS_OSLIN1:	LD	A,CMOS_CR
+	LD	(HL),A
+	CALL	NZ,OSWRCH
+	LD	L,0
+	LD	C,L			;REPEAT FLAG
+	JR	Z,CMOS_OSWAIT		;SUPPRESS UNWANTED SPACE
+CMOS_UPDATE:	LD	B,0
+CMOS_UPD1:	LD	A,(HL)
+	INC	B
+	INC	HL
+	CP	CMOS_CR
+	PUSH	AF
+	PUSH	HL
+	LD	E,A
+	CALL	NZ,CMOS_WRCH			;FAST WRCH
+	POP	HL
+	POP	AF
+	JR	NZ,CMOS_UPD1
+	LD	A,' '
+	CALL	OSWRCH
+	LD	E,CMOS_BS
+CMOS_UPD2:	PUSH	HL
+	CALL	CMOS_WRCH			;FAST WRCH
+	POP	HL
+	DEC	HL
+	DJNZ	CMOS_UPD2
+CMOS_OSWAIT:	LD	A,C
+	DEC	B
+	JR	Z,CMOS_LIMIT
+	OR	A			;REPEAT COMMAND?
+CMOS_LIMIT:	CALL	Z,CMOS_KEYGET		;READ KEYBOARD
+	LD	C,A			;SAVE FOR REPEAT
+	LD	DE,CMOS_OSWAIT		;RETURN ADDRESS
+	PUSH	DE
+	LD	A,(CMOS_FLAGS)
+	OR	A			;TEST FOR ESCAPE
+	LD	A,C
+	JP	M,CMOS_OSEXIT
+	CP	'P' AND 1FH
+	JP	Z,CMOS_TOGGLE
+	CP	(IX-11)			;CURSOR UP     (IX-11)
+	JP	Z,CMOS_LEFT
+	CP	(IX-10)			;CURSOR DOWN   (IX-10)
+	JP	Z,CMOS_RIGHT
+	LD	B,0
+	CP	(IX-5)			;CLEAR LEFT    (IX-5)
+	JR	Z,CMOS_BACK
+	CP	(IX-9)			;START OF LINE (IX-9)
+	JR	Z,CMOS_LEFT
+	CP	(IX-8)			;END OF LINE   (IX-8)
+	JP	Z,CMOS_RIGHT
+	CP	(IX-7)			;CLEAR RIGHT   (IX-7)
+	JR	Z,CMOS_DELETE
+	LD	C,0			;INHIBIT REPEAT
+	CP	(IX-1)			;INSERT / OVR  (IX-1)
+	JP	Z,CMOS_INSERT
+	CP	(IX-6)			;DELETE LEFT   (IX-6)
+	JR	Z,CMOS_BACK
+	CP	(IX-4)			;CURSOR LEFT   (IX-4)
+	JR	Z,CMOS_LEFT
+	CP	(IX-2)			;DELETE RIGHT  (IX-2)
+	JR	Z,CMOS_DELETE
+	CP	(IX-3)			;CURSOR RIGHT  (IX-3)
+	JP	Z,CMOS_RIGHT
+	CP	' '			;PRINTING CHARACTER
+	JR	NC,CMOS_SAVECH
+	CP	CMOS_CR			;ENTER LINE
+	RET	NZ
+CMOS_OSEXIT:	LD	A,(HL)
+	CALL	OSWRCH			;WRITE REST OF LINE
+	INC	HL
+	SUB	CMOS_CR
+	JR	NZ,CMOS_OSEXIT
+	POP	DE			;DITCH RETURN ADDRESS
+	CP	C
+	JP	NZ,CMOS_ABORT		;ESCAPE
+	LD	A,CMOS_LF
+	CALL	OSWRCH
+	XOR	A
+	LD	L,A
+	LD	(CMOS_EDPTR),HL
+	LD	DE,(CURLIN)
+	CP	D
+	RET	NZ
+	CP	E
+	RET	NZ
+	LD	DE,(AUTONO)
+	CP	D
+	RET	NZ
+	CP	E
+	RET	NZ
+	LD	DE,CMOS_EDITST
+	LD	B,4
+CMOS_CMPARE:	LD	A,(DE)
+	CP	(HL)
+	LD	A,0
+	RET	NZ
+	INC	HL
+	INC	DE
+	LD	A,(HL)
+	CP	'.'
+	JR	Z,CMOS_ABBR
+	DJNZ	CMOS_CMPARE
+CMOS_ABBR:	XOR	A
+	LD	B,A
+	LD	C,L
+	LD	L,A
+	LD	DE,CMOS_LISTST
+	EX	DE,HL
+	LDIR
+	LD	HL,CMOS_FLAGS
+	SET	3,(HL)
+	RET
+;
+CMOS_BACK:	SCF	;DELETE LEFT
+CMOS_LEFT:	INC	L			;CURSOR LEFT
+	DEC	L
+	JR	Z,CMOS_STOP
+	LD	A,CMOS_BS
+	CALL	OSWRCH
+	DEC	L
+	RET	NC
+CMOS_DELETE:	LD	A,(HL)			;DELETE RIGHT
+	CP	CMOS_CR
+	JR	Z,CMOS_STOP
+	LD	D,H
+	LD	E,L
+CMOS_DEL1:	INC	DE
+	LD	A,(DE)
+	DEC	DE
+	LD	(DE),A
+	INC	DE
+	CP	CMOS_CR
+	JR	NZ,CMOS_DEL1
+CMOS_DEL2:	POP	DE			;DITCH
+	JP	CMOS_UPDATE
+;
+CMOS_SAVECH:	LD	D,A
+	LD	A,(CMOS_FLAGS)
+	AND	00010000B
+	LD	A,D
+	JR	NZ,CMOS_RIGHT1
+	LD	D,A
+	LD	A,CMOS_CR			;INSERT SPACE
+	CP	(HL)
+	LD	A,D
+	JR	Z,CMOS_RIGHT1
+	LD	D,H
+	LD	E,254
+	PUSH	AF
+CMOS_INS1:	INC	DE
+	LD	(DE),A
+	DEC	DE
+	LD	A,E
+	CP	L
+	DEC	DE
+	LD	A,(DE)
+	JR	NZ,CMOS_INS1
+	POP	AF
+	LD	(HL),A
+	INC	L
+	JR	Z,CMOS_WONTGO
+	CALL	OSWRCH
+	JR	CMOS_DEL2
+;
+CMOS_RIGHT:	LD	A,(HL)			;CURSOR RIGHT
+	CP	CMOS_CR
+	JR	Z,CMOS_STOP
+CMOS_RIGHT1:	LD	D,(HL)			;PRINTING CHARACTER
+	LD	(HL),A
+	INC	L
+	JR	Z,CMOS_WONTGO		;LINE TOO LONG
+	CALL	OSWRCH
+	LD	A,CMOS_CR
+	CP	D
+	RET	NZ
+	LD	(HL),A
+	RET
+;
+CMOS_WONTGO:	DEC	L
+	LD	(HL),CMOS_CR
+	LD	A,CMOS_BEL
+	CALL	OSWRCH			;BEEP!
+CMOS_STOP:	LD	C,0			;STOP REPEAT
+	RET
+;
+;
+CMOS_EDITST:	DEFM	'EDIT'
+CMOS_LISTST:	DEFM	'LIST'
+;
+CMOS_BEL:	EQU	7
+CMOS_BS:	EQU	8
+CMOS_HT:	EQU	9
+CMOS_LF:	EQU	0AH
+CMOS_VT:	EQU	0BH
+CMOS_CR:	EQU	0DH
+CMOS_ESC:	EQU	1BH
+CMOS_DEL:	EQU	7FH
+;
+CMOS_BDOS:	EQU	5
+;
+CMOS_FCB:	EQU	5CH
+CMOS_DSKBUF:	EQU	80H
+;
+CMOS_FCBSIZ:	EQU	128+36+2
+;
+CMOS_TRPCNT:	DEFB	10
+CMOS_TABLE:	DEFS	16			;FILE BLOCK POINTERS
+CMOS_FLAGS:	DEFB	0
+CMOS_INKEY:	DEFB	0
+CMOS_EDPTR:	DEFW	0
+CMOS_OPTVAL:	DEFB	0
+CMOS_INILEN:	EQU	$-CMOS_TABLE
+;
+CMOS_FIN:
+

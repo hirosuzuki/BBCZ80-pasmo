@@ -1,0 +1,2252 @@
+; generated from src/MATH.Z80 by pasmo/m80topasmo.py -- do not edit
+;
+;Z80 FLOATING POINT PACKAGE
+;(C) COPYRIGHT  R.T.RUSSELL  1986-2024
+;VERSION 0.0, 26-10-1986
+;VERSION 0.1, 14-12-1988 (BUG FIX)
+;VERSION 5.0, 16-06-2024 (SHIFTS ADDED)
+;VERSION 5.1, 16-03-2025 (Shifts moved to new codes)
+;
+;BINARY FLOATING POINT REPRESENTATION:
+;   32 BIT SIGN-MAGNITUDE NORMALIZED MANTISSA
+;    8 BIT EXCESS-128 SIGNED EXPONENT
+;   SIGN BIT REPLACES MANTISSA MSB (IMPLIED "1")
+;   MANTISSA=0 & EXPONENT=0 IMPLIES VALUE IS ZERO.
+;
+;BINARY INTEGER REPRESENTATION:
+;   32 BIT 2'S-COMPLEMENT SIGNED INTEGER
+;    "EXPONENT" BYTE = 0 (WHEN PRESENT)
+;
+;NORMAL REGISTER ALLOCATION: MANTISSA - HLH'L'
+;                            EXPONENT - C
+;ALTERNATE REGISTER ALLOCATION: MANTISSA - DED'E'
+;                               EXPONENT - B
+;
+;Error codes:
+;
+MATH_BADOP:	EQU	1			;Bad operation code
+MATH_DIVBY0:	EQU	18			;Division by zero
+MATH_TOOBIG:	EQU	20			;Too big
+MATH_NGROOT:	EQU	21			;Negative root
+MATH_LOGRNG:	EQU	22			;Log range
+MATH_ACLOST:	EQU	23			;Accuracy lost
+MATH_EXPRNG:	EQU	24			;Exp range
+;
+;
+;Call entry and despatch code:
+;
+FPP:	PUSH	IY			;Save IY
+	LD	IY,0
+	ADD	IY,SP			;Save SP in IY
+	CALL	MATH_OP			;Perform operation
+	CP	A			;Good return (Z, NC)
+MATH_EXIT:	POP	IY			;Restore IY
+	RET	;Return to caller
+;
+;Error exit:
+;
+MATH_BAD:	LD	A,MATH_BADOP			;"Bad operation code"
+MATH_ERROR:	LD	SP,IY			;Restore SP from IY
+	OR	A			;Set NZ
+	SCF	;Set C
+	JR	MATH_EXIT
+;
+;Perform operation or function:
+;
+MATH_OP:	CP	(MATH_RTABLE-MATH_DTABLE)/2
+	JR	NC,MATH_BAD
+	CP	(MATH_FTABLE-MATH_DTABLE)/2
+	JR	NC,MATH_DISPAT
+	EX	AF,AF'
+	LD	A,B
+	OR	C			;Both integer?
+	CALL	NZ,MATH_FLOATA		;No, so float both
+	EX	AF,AF'
+MATH_DISPAT:	PUSH	HL
+	LD	HL,MATH_DTABLE
+	PUSH	BC
+	ADD	A,A			;A = op-code * 2
+	LD	C,A
+	LD	B,0			;BC = op-code * 2
+	ADD	HL,BC
+	LD	A,(HL)			;Get low byte
+	INC	HL
+	LD	H,(HL)			;Get high byte
+	LD	L,A
+	POP	BC
+	EX	(SP),HL
+	RET	;Off to routine
+;
+;Despatch table:
+;
+MATH_DTABLE:	DEFW	MATH_IAND			;0  AND (INTEGER)
+	DEFW	MATH_IBDIV			;1  DIV
+	DEFW	MATH_IEOR			;2  EOR
+	DEFW	MATH_IMOD			;3  MOD
+	DEFW	MATH_IOR			;4  OR
+	DEFW	MATH_ILE			;5  <=
+	DEFW	MATH_INE			;6  <>
+	DEFW	MATH_IGE			;7  >=
+	DEFW	MATH_ILT			;8  <
+	DEFW	MATH_IEQ			;9  =
+	DEFW	MATH_IMUL			;10 *
+	DEFW	MATH_IADD			;11 +
+	DEFW	MATH_IGT			;12 >
+	DEFW	MATH_ISUB			;13 -
+	DEFW	MATH_IPOW			;14 ^
+	DEFW	MATH_IDIV			;15 /
+;
+MATH_FTABLE:	DEFW	MATH_ABS			;16 ABS
+	DEFW	MATH_ACS			;17 ACS
+	DEFW	MATH_ASN			;18 ASN
+	DEFW	MATH_ATN			;19 ATN
+	DEFW	MATH_COS			;20 COS
+	DEFW	MATH_DEG			;21 DEG
+	DEFW	MATH_EXP			;22 EXP
+	DEFW	MATH_INT			;23 INT
+	DEFW	MATH_LN			;24 LN
+	DEFW	MATH_LOG			;25 LOG
+	DEFW	MATH_CPL			;26 NOT
+	DEFW	MATH_RAD			;27 RAD
+	DEFW	MATH_SGN			;28 SGN
+	DEFW	MATH_SIN			;29 SIN
+	DEFW	MATH_SQR			;30 SQR
+	DEFW	MATH_TAN			;31 TAN
+;
+	DEFW	MATH_ZERO			;32 ZERO
+	DEFW	MATH_FONE			;33 FONE
+	DEFW	MATH_TRUE			;34 TRUE
+	DEFW	MATH_PI			;35 PI
+;
+	DEFW	MATH_VAL			;36 VAL
+	DEFW	MATH_STR			;37 STR$
+;
+	DEFW	MATH_SFIX			;38 FIX
+	DEFW	MATH_SFLOAT			;39 FLOAT
+;
+	DEFW	MATH_FTEST			;40 TEST
+	DEFW	MATH_FCOMP			;41 COMPARE
+;
+	DEFW	MATH_BAD			;42 Reserved for Z88
+	DEFW	MATH_BAD			;43 Reserved for Z88
+;
+	DEFW	MATH_ISHL			;44 <<
+	DEFW	MATH_ISHX			;45 <<<
+	DEFW	MATH_ISAR			;46 >>
+	DEFW	MATH_ISHR			;47 >>>
+;
+MATH_RTABLE:	DEFW	MATH_FAND			;AND (FLOATING-POINT)
+	DEFW	MATH_FBDIV			;DIV
+	DEFW	MATH_FEOR			;EOR
+	DEFW	MATH_FMOD			;MOD
+	DEFW	MATH_FOR			;OR
+	DEFW	MATH_FLE			;<= 
+	DEFW	MATH_FNE			;<>
+	DEFW	MATH_FGE			;>=
+	DEFW	MATH_FLT			;<
+	DEFW	MATH_FEQ			;=
+	DEFW	MATH_FMUL			;*
+	DEFW	MATH_FADD			;+
+	DEFW	MATH_FGT			;>
+	DEFW	MATH_FSUB			;-
+	DEFW	MATH_FPOW			;^
+	DEFW	MATH_FDIV			;/
+;
+;ARITHMETIC AND LOGICAL OPERATORS:
+;All take two arguments, in HLH'L'C & DED'E'B.
+;Output in HLH'L'C
+;All registers except IX, IY destroyed.
+; (N.B. FPOW destroys IX).
+;
+;FAND - Floating-point AND.
+;IAND - Integer AND.
+;
+MATH_FAND:	CALL	MATH_FIX2
+MATH_IAND:	LD	A,H
+	AND	D
+	LD	H,A
+	LD	A,L
+	AND	E
+	LD	L,A
+	EXX
+	LD	A,H
+	AND	D
+	LD	H,A
+	LD	A,L
+	AND	E
+	LD	L,A
+	EXX
+	RET
+;
+;FEOR - Floating-point exclusive-OR.
+;IEOR - Integer exclusive-OR.
+;
+MATH_FEOR:	CALL	MATH_FIX2
+MATH_IEOR:	LD	A,H
+	XOR	D
+	LD	H,A
+	LD	A,L
+	XOR	E
+	LD	L,A
+	EXX
+	LD	A,H
+	XOR	D
+	LD	H,A
+	LD	A,L
+	XOR	E
+	LD	L,A
+	EXX
+	RET
+;
+;FOR - Floating-point OR.
+;IOR - Integer OR.
+;
+MATH_FOR:	CALL	MATH_FIX2
+MATH_IOR:	LD	A,H
+	OR	D
+	LD	H,A
+	LD	A,L
+	OR	E
+	LD	L,A
+	EXX
+	LD	A,H
+	OR	D
+	LD	H,A
+	LD	A,L
+	OR	E
+	LD	L,A
+	EXX
+	RET
+;
+;FMOD - Floating-point remainder.
+;IMOD - Integer remainder.
+;
+MATH_FMOD:	CALL	MATH_FIX2
+MATH_IMOD:	LD	A,H
+	XOR	D			;DIV RESULT SIGN
+	BIT	7,H
+	CALL	MATH_ABS2			;MAKE BOTH POSITIVE
+	LD	A,-33
+	CALL	MATH_DIVA			;DIVIDE
+	EXX
+	LD	C,0			;INTEGER MARKER
+	EX	AF,AF'
+	RET	Z
+	JP	MATH_NEGATE
+;
+;BDIV - Integer division.
+;
+MATH_FBDIV:	CALL	MATH_FIX2
+MATH_IBDIV:	CALL	MATH_IMOD
+	OR	A
+	CALL	MATH_SWAP
+	LD	C,0
+	RET	P
+	JP	MATH_NEGATE
+;
+;ISUB - Integer subtraction.
+;FSUB - Floating point subtraction with rounding.
+;
+MATH_ISUB:	CALL	MATH_SUB
+	RET	PO
+	CALL	MATH_ADD
+	CALL	MATH_FLOAT2
+MATH_FSUB:	LD	A,D
+	XOR	80H			;CHANGE SIGN THEN ADD
+	LD	D,A
+	JR	MATH_FADD
+;
+;Reverse subtract.
+;
+MATH_RSUB:	LD	A,H
+	XOR	80H
+	LD	H,A
+	JR	MATH_FADD
+;
+;IADD - Integer addition.
+;FADD - Floating point addition with rounding.
+;
+MATH_IADD:	CALL	MATH_ADD
+	RET	PO
+	CALL	MATH_SUB
+	CALL	MATH_FLOAT2
+MATH_FADD:	DEC	B
+	INC	B
+	RET	Z			;ARG 2 ZERO
+	DEC	C
+	INC	C
+	JP	Z,MATH_SWAP			;ARG 1 ZERO
+	EXX
+	LD	BC,0			;INITIALISE
+	EXX
+	LD	A,H
+	XOR	D			;XOR SIGNS
+	PUSH	AF
+	LD	A,B
+	CP	C			;COMPARE EXPONENTS
+	CALL	C,MATH_SWAP			;MAKE DED'E'B LARGEST
+	LD	A,B
+	SET	7,H			;IMPLIED 1
+	CALL	NZ,MATH_FIX			;ALIGN
+	POP	AF
+	LD	A,D			;SIGN OF LARGER
+	SET	7,D			;IMPLIED 1
+	JP	M,MATH_FADD3			;SIGNS DIFFERENT
+	CALL	MATH_ADD			;HLH'L'=HLH'L'+DED'E'
+	CALL	C,MATH_DIV2			;NORMALISE
+	SET	7,H
+	JR	MATH_FADD4
+;
+MATH_FADD3:	CALL	MATH_SUB			;HLH'L'=HLH'L'-DED'E'
+	CALL	C,MATH_NEG			;NEGATE HLH'L'B'C'
+	CALL	MATH_FLO48
+	CPL	;CHANGE RESULT SIGN
+MATH_FADD4:	EXX
+	EX	DE,HL
+	LD	HL,8000H
+	OR	A			;CLEAR CARRY
+	SBC	HL,BC
+	EX	DE,HL
+	EXX
+	CALL	Z,MATH_ODD			;ROUND UNBIASSED
+	CALL	C,MATH_ADD1			;ROUND UP
+	CALL	C,MATH_INCC
+	RES	7,H
+	DEC	C
+	INC	C
+	JP	Z,MATH_ZERO
+	OR	A			;RESULT SIGNQ
+	RET	P			;POSITIVE
+	SET	7,H			;NEGATIVE
+	RET
+;
+;IDIV - Integer division.
+;FDIV - Floating point division with rounding.
+;
+MATH_IDIV:	CALL	MATH_FLOAT2
+MATH_FDIV:	DEC	B			;TEST FOR ZERO
+	INC	B
+	LD	A,MATH_DIVBY0
+	JP	Z,MATH_ERROR			;"Division by zero"
+	DEC	C			;TEST FOR ZERO
+	INC	C
+	RET	Z
+	LD	A,H
+	XOR	D			;CALC. RESULT SIGN
+	EX	AF,AF'			;SAVE SIGN
+	SET	7,D			;REPLACE IMPLIED 1's
+	SET	7,H
+	PUSH	BC			;SAVE EXPONENTS
+	LD	B,D			;LOAD REGISTERS
+	LD	C,E
+	LD	DE,0
+	EXX
+	LD	B,D
+	LD	C,E
+	LD	DE,0
+	LD	A,-32			;LOOP COUNTER
+	CALL	MATH_DIVA			;DIVIDE
+	EXX
+	BIT	7,D
+	EXX
+	CALL	Z,MATH_DIVB			;NORMALISE & INC A
+	EX	DE,HL
+	EXX
+	SRL	B			;DIVISOR/2
+	RR	C
+	OR	A			;CLEAR CARRY
+	SBC	HL,BC			;REMAINDER-DIVISOR/2
+	CCF
+	EX	DE,HL			;RESULT IN HLH'L'
+	CALL	Z,MATH_ODD			;ROUND UNBIASSED
+	CALL	C,MATH_ADD1			;ROUND UP
+	POP	BC			;RESTORE EXPONENTS
+	CALL	C,MATH_INCC
+	RRA	;LSB OF A TO CARRY
+	LD	A,C			;COMPUTE NEW EXPONENT
+	SBC	A,B
+	CCF
+	JP	MATH_CHKOVF
+;
+;IMUL - Integer multiplication.
+;
+MATH_IMUL:	LD	A,H
+	XOR	D
+	CALL	MATH_ABS2			;MAKE BOTH POSITIVE
+	LD	A,-33
+	CALL	MATH_MULA			;MULTIPLY
+	EXX
+	LD	C,191			;PRESET EXPONENT
+	CALL	MATH_TEST			;TEST RANGE
+	JR	NZ,MATH_IMUL1		;TOO BIG
+	BIT	7,D
+	JR	NZ,MATH_IMUL1
+	CALL	MATH_SWAP
+	LD	C,D			;INTEGER MARKER
+	EX	AF,AF'
+	RET	P
+	JP	MATH_NEGATE
+;
+MATH_IMUL1:	DEC	C
+	CALL	MATH_SLA8
+	JP	P,MATH_IMUL1			;NORMALISE
+	EX	AF,AF'
+	RET	M
+	RES	7,H			;POSITIVE
+	RET
+;
+;FMUL - Floating point multiplication with rounding.
+;
+MATH_FMUL:	DEC	B			;TEST FOR ZERO
+	INC	B
+	JP	Z,MATH_ZERO
+	DEC	C			;TEST FOR ZERO
+	INC	C
+	RET	Z
+	LD	A,H
+	XOR	D			;CALC. RESULT SIGN
+	EX	AF,AF'
+	SET	7,D			;REPLACE IMPLIED 1's
+	SET	7,H
+	PUSH	BC			;SAVE EXPONENTS
+	LD	B,H			;LOAD REGISTERS
+	LD	C,L
+	LD	HL,0
+	EXX
+	LD	B,H
+	LD	C,L
+	LD	HL,0
+	LD	A,-32			;LOOP COUNTER
+	CALL	MATH_MULA			;MULTIPLY
+	CALL	C,MATH_MULB			;NORMALISE & INC A
+	EXX
+	PUSH	HL
+	LD	HL,8000H
+	OR	A			;CLEAR CARRY
+	SBC	HL,DE
+	POP	HL
+	CALL	Z,MATH_ODD			;ROUND UNBIASSED
+	CALL	C,MATH_ADD1			;ROUND UP
+	POP	BC			;RESTORE EXPONENTS
+	CALL	C,MATH_INCC
+	RRA	;LSB OF A TO CARRY
+	LD	A,C			;COMPUTE NEW EXPONENT
+	ADC	A,B
+MATH_CHKOVF:	JR	C,MATH_CHKO1
+	JP	P,MATH_ZERO			;UNDERFLOW
+	JR	MATH_CHKO2
+MATH_CHKO1:	JP	M,MATH_OFLOW			;OVERFLOW
+MATH_CHKO2:	ADD	A,80H
+	LD	C,A
+	JP	Z,MATH_ZERO
+	EX	AF,AF'			;RESTORE SIGN BIT
+	RES	7,H
+	RET	P
+	SET	7,H
+	RET
+;
+;IPOW - Integer involution.
+;
+MATH_IPOW:	CALL	MATH_SWAP
+	BIT	7,H
+	PUSH	AF			;SAVE SIGN
+	CALL	NZ,MATH_NEGATE
+MATH_IPOW0:	LD	C,B
+	LD	B,32			;LOOP COUNTER
+MATH_IPOW1:	CALL	MATH_X2
+	JR	C,MATH_IPOW2
+	DJNZ	MATH_IPOW1
+	POP	AF
+	EXX
+	INC	L			;RESULT=1
+	EXX
+	LD	C,H
+	RET
+;
+MATH_IPOW2:	POP	AF
+	PUSH	BC
+	EX	DE,HL
+	PUSH	HL
+	EXX
+	EX	DE,HL
+	PUSH	HL
+	EXX
+	LD	IX,0
+	ADD	IX,SP
+	JR	Z,MATH_IPOW4
+	PUSH	BC
+	EXX
+	PUSH	DE
+	EXX
+	PUSH	DE
+	CALL	MATH_SFLOAT
+	CALL	MATH_RECIP
+	CALL	STORE5
+	JR	MATH_IPOW5
+;
+MATH_IPOW3:	PUSH	BC
+	EXX
+	SLA	E
+	RL	D
+	PUSH	DE
+	EXX
+	RL	E
+	RL	D
+	PUSH	DE
+	LD	A,'*' AND 0FH
+	PUSH	AF
+	CALL	MATH_COPY
+	CALL	MATH_OP			;SQUARE
+	POP	AF
+	CALL	DLOAD5
+	CALL	C,MATH_OP			;MULTIPLY BY X
+MATH_IPOW5:	POP	DE
+	EXX
+	POP	DE
+	EXX
+	LD	A,C
+	POP	BC
+	LD	C,A
+MATH_IPOW4:	DJNZ	MATH_IPOW3
+	POP	AF
+	POP	AF
+	POP	AF
+	RET
+;
+MATH_FPOW0:	POP	AF
+	POP	AF
+	POP	AF
+	JR	MATH_IPOW0
+;
+;FPOW - Floating-point involution.
+;
+MATH_FPOW:	BIT	7,D
+	PUSH	AF
+	CALL	MATH_SWAP
+	CALL	MATH_PUSH5
+	DEC	C
+	INC	C
+	JR	Z,MATH_FPOW0
+	LD	A,158
+	CP	C
+	JR	C,MATH_FPOW1
+	INC	A
+	CALL	MATH_FIX
+	EX	AF,AF'
+	JP	P,MATH_FPOW0
+MATH_FPOW1:	CALL	MATH_SWAP
+	CALL	MATH_LN0
+	CALL	MATH_POP5
+	POP	AF
+	CALL	MATH_FMUL
+	JP	MATH_EXP0
+;
+;Integer and floating-point compare.
+;Result is TRUE (-1) or FALSE (0).
+;
+MATH_FLT:	CALL	MATH_FCP
+	JR	MATH_ILT1
+MATH_ILT:	CALL	MATH_ICP
+MATH_ILT1:	RET	NC
+	JR	MATH_TRUE
+;
+MATH_FGT:	CALL	MATH_FCP
+	JR	MATH_IGT1
+MATH_IGT:	CALL	MATH_ICP
+MATH_IGT1:	RET	Z
+	RET	C
+	JR	MATH_TRUE
+;
+MATH_FGE:	CALL	MATH_FCP
+	JR	MATH_IGE1
+MATH_IGE:	CALL	MATH_ICP
+MATH_IGE1:	RET	C
+	JR	MATH_TRUE
+;
+MATH_FLE:	CALL	MATH_FCP
+	JR	MATH_ILE1
+MATH_ILE:	CALL	MATH_ICP
+MATH_ILE1:	JR	Z,MATH_TRUE
+	RET	NC
+	JR	MATH_TRUE
+;
+MATH_FNE:	CALL	MATH_FCP
+	JR	MATH_INE1
+MATH_INE:	CALL	MATH_ICP
+MATH_INE1:	RET	Z
+	JR	MATH_TRUE
+;
+MATH_FEQ:	CALL	MATH_FCP
+	JR	MATH_IEQ1
+MATH_IEQ:	CALL	MATH_ICP
+MATH_IEQ1:	RET	NZ
+MATH_TRUE:	LD	HL,-1
+	EXX
+	LD	HL,-1
+	EXX
+	XOR	A
+	LD	C,A
+	RET
+;
+;Integer shifts:
+;
+MATH_ISHX:
+MATH_ISHL:	CALL	MATH_SHIFTS
+	RET	Z
+MATH_ISHL1:	EXX
+	ADD	HL,HL
+	EXX
+	ADC	HL,HL
+	DJNZ	MATH_ISHL1
+	RET
+;
+MATH_ISAR:	CALL	MATH_SHIFTS
+	RET	Z
+MATH_ISAR1:	SRA	H
+	RR	L
+	EXX
+	RR	H
+	RR	L
+	EXX
+	DJNZ	MATH_ISAR1
+	RET
+;
+MATH_ISHR:	CALL	MATH_SHIFTS
+	RET	Z
+MATH_ISHR1:	SRL	H
+	RR	L
+	EXX
+	RR	H
+	RR	L
+	EXX
+	DJNZ	MATH_ISHR1
+	RET
+;
+MATH_SHIFTS:	CALL	MATH_FIX2
+	LD	A,D
+	OR	E
+	EXX
+	OR	D
+	LD	A,E
+	EXX
+	LD	B,32
+	RET	NZ
+	LD	B,A
+	OR	A
+	RET
+;
+;FUNCTIONS:
+;
+;Result returned in HLH'L'C (floating point)
+;Result returned in HLH'L' (C=0) (integer)
+;All registers except IY destroyed.
+;
+;ABS - Absolute value
+;Result is numeric, variable type.
+;
+MATH_ABS:	BIT	7,H
+	RET	Z			;POSITIVE/ZERO
+	DEC	C
+	INC	C
+	JP	Z,MATH_NEGATE		;INTEGER
+	RES	7,H
+	RET
+;
+;NOT - Complement integer.
+;Result is integer numeric.
+;
+MATH_CPL:	CALL	MATH_SFIX
+	LD	A,H
+	CPL
+	LD	H,A
+	LD	A,L
+	CPL
+	LD	L,A
+	EXX
+	LD	A,H
+	CPL
+	LD	H,A
+	LD	A,L
+	CPL
+	LD	L,A
+	EXX
+	XOR	A			;NUMERIC MARKER
+	RET
+;
+;PI - Return PI (3.141592654)
+;Result is floating-point numeric.
+;
+MATH_PI:	LD	HL,490FH
+	EXX
+	LD	HL,0DAA2H
+	EXX
+	LD	C,81H
+	XOR	A			;NUMERIC MARKER
+	RET
+;
+;DEG - Convert radians to degrees
+;Result is floating-point numeric.
+;
+MATH_DEG:	CALL	MATH_FPI180
+	CALL	MATH_FMUL
+	XOR	A
+	RET
+;
+;RAD - Convert degrees to radians
+;Result is floating-point numeric.
+;
+MATH_RAD:	CALL	MATH_FPI180
+	CALL	MATH_FDIV
+	XOR	A
+	RET
+;
+;180/PI
+;
+MATH_FPI180:	CALL	MATH_SFLOAT
+	LD	DE,652EH
+	EXX
+	LD	DE,0E0D3H
+	EXX
+	LD	B,85H
+	RET
+;
+;SGN - Return -1, 0 or +1
+;Result is integer numeric.
+;
+MATH_SGN:	CALL	MATH_TEST
+	OR	C
+	RET	Z			;ZERO
+	BIT	7,H
+	JP	NZ,MATH_TRUE			;-1
+	CALL	MATH_ZERO
+	JP	MATH_ADD1			;1
+;
+;VAL - Return numeric value of string.
+;Input: ASCII string at IX
+;Result is variable type numeric.
+;
+MATH_VAL:	CALL	MATH_SIGNQ
+	PUSH	AF
+	CALL	MATH_CON
+	POP	AF
+	CP	'-'
+	LD	A,0			;NUMERIC MARKER
+	RET	NZ
+	DEC	C
+	INC	C
+	JP	Z,MATH_NEGATE		;ZERO/INTEGER
+	LD	A,H
+	XOR	80H			;CHANGE SIGN (FP)
+	LD	H,A
+	XOR	A
+	RET
+;
+;INT - Floor function
+;Result is integer numeric.
+;
+MATH_INT:	DEC	C
+	INC	C
+	RET	Z			;ZERO/INTEGER
+	LD	A,159
+	LD	B,H			;B7=SIGN BIT
+	CALL	MATH_FIX
+	EX	AF,AF'
+	AND	B
+	CALL	M,MATH_ADD1			;NEGATIVE NON-INTEGER
+	LD	A,B
+	OR	A
+	CALL	M,MATH_NEGATE
+	XOR	A
+	LD	C,A
+	RET
+;
+;SQR - square root
+;Result is floating-point numeric.
+;
+MATH_SQR:	CALL	MATH_SFLOAT
+MATH_SQR0:	BIT	7,H
+	LD	A,MATH_NGROOT
+	JP	NZ,MATH_ERROR		;"-ve root"
+	DEC	C
+	INC	C
+	RET	Z			;ZERO
+	SET	7,H			;IMPLIED 1
+	BIT	0,C
+	CALL	Z,MATH_DIV2			;MAKE EXPONENT ODD
+	LD	A,C
+	SUB	80H
+	SRA	A			;HALVE EXPONENT
+	ADD	A,80H
+	LD	C,A
+	PUSH	BC			;SAVE EXPONENT
+	EX	DE,HL
+	LD	HL,0
+	LD	B,H
+	LD	C,L
+	EXX
+	EX	DE,HL
+	LD	HL,0
+	LD	B,H
+	LD	C,L
+	LD	A,-31
+	CALL	MATH_SQRA			;ROOT
+	EXX
+	BIT	7,B
+	EXX
+	CALL	Z,MATH_SQRA			;NORMALISE & INC A
+	CALL	MATH_SQRB
+	OR	A			;CLEAR CARRY
+	CALL	MATH_DIVB
+	RR	E			;LSB TO CARRY
+	LD	H,B
+	LD	L,C
+	EXX
+	LD	H,B
+	LD	L,C
+	CALL	C,MATH_ADD1			;ROUND UP
+	POP	BC			;RESTORE EXPONENT
+	CALL	C,MATH_INCC
+	RRA
+	SBC	A,A
+	ADD	A,C
+	LD	C,A
+	RES	7,H			;POSITIVE
+	XOR	A
+	RET
+;
+;TAN - Tangent function
+;Result is floating-point numeric.
+;
+MATH_TAN:	CALL	MATH_SFLOAT
+	CALL	MATH_PUSH5
+	CALL	MATH_COS0
+	CALL	MATH_POP5
+	CALL	MATH_PUSH5
+	CALL	MATH_SWAP
+	CALL	MATH_SIN0
+	CALL	MATH_POP5
+	CALL	MATH_FDIV
+	XOR	A			;NUMERIC MARKER
+	RET
+;
+;COS - Cosine function
+;Result is floating-point numeric.
+;
+MATH_COS:	CALL	MATH_SFLOAT
+MATH_COS0:	CALL	MATH_SCALE
+	INC	E
+	INC	E
+	LD	A,E
+	JR	MATH_SIN1
+;
+;SIN - Sine function
+;Result is floating-point numeric.
+;
+MATH_SIN:	CALL	MATH_SFLOAT
+MATH_SIN0:	PUSH	HL			;H7=SIGN
+	CALL	MATH_SCALE
+	POP	AF
+	RLCA
+	RLCA
+	RLCA
+	AND	4
+	XOR	E
+MATH_SIN1:	PUSH	AF			;OCTANT
+	RES	7,H
+	RRA
+	CALL	MATH_PIBY4
+	CALL	C,MATH_RSUB			;X=(PI/4)-X
+	POP	AF
+	PUSH	AF
+	AND	3
+	JP	PO,MATH_SIN2			;USE COSINE APPROX.
+	CALL	MATH_PUSH5			;SAVE X
+	CALL	MATH_SQUARE			;PUSH X*X
+	CALL	MATH_POLY
+	DEFW	0A8B7H			;a(8)
+	DEFW	3611H
+	DEFB	6DH
+	DEFW	0DE26H			;a(6)
+	DEFW	0D005H
+	DEFB	73H
+	DEFW	80C0H			;a(4)
+	DEFW	888H
+	DEFB	79H
+	DEFW	0AA9DH			;a(2)
+	DEFW	0AAAAH
+	DEFB	7DH
+	DEFW	0			;a(0)
+	DEFW	0
+	DEFB	80H
+	CALL	MATH_POP5
+	CALL	MATH_POP5
+	CALL	MATH_FMUL
+	JP	MATH_SIN3
+;
+MATH_SIN2:	CALL	MATH_SQUARE			;PUSH X*X
+	CALL	MATH_POLY
+	DEFW	0D571H			;b(8)
+	DEFW	4C78H
+	DEFB	70H
+	DEFW	94AFH			;b(6)
+	DEFW	0B603H
+	DEFB	76H
+	DEFW	9CC8H			;b(4)
+	DEFW	2AAAH
+	DEFB	7BH
+	DEFW	0FFDDH			;b(2)
+	DEFW	0FFFFH
+	DEFB	7EH
+	DEFW	0			;b(0)
+	DEFW	0
+	DEFB	80H
+	CALL	MATH_POP5
+MATH_SIN3:	POP	AF
+	AND	4
+	RET	Z
+	DEC	C
+	INC	C
+	RET	Z			;ZERO
+	SET	7,H			;MAKE NEGATIVE
+	RET
+;
+;Floating-point one:
+;
+MATH_FONE:	LD	HL,0
+	EXX
+	LD	HL,0
+	EXX
+	LD	C,80H
+	RET
+;
+MATH_DONE:	LD	DE,0
+	EXX
+	LD	DE,0
+	EXX
+	LD	B,80H
+	RET
+;
+MATH_PIBY4:	LD	DE,490FH
+	EXX
+	LD	DE,0DAA2H
+	EXX
+	LD	B,7FH
+	RET
+;
+;EXP - Exponential function
+;Result is floating-point numeric.
+;
+MATH_EXP:	CALL	MATH_SFLOAT
+MATH_EXP0:	CALL	MATH_LN2			;LN(2)
+	EXX
+	DEC	E
+	LD	BC,0D1CFH		;0.6931471805599453
+	EXX
+	PUSH	HL			;H7=SIGN
+	CALL	MATH_MOD48			;"MODULUS"
+	POP	AF
+	BIT	7,E
+	JR	Z,MATH_EXP1
+	RLA
+	JP	C,MATH_ZERO
+	LD	A,MATH_EXPRNG
+	JP	MATH_ERROR			;"Exp range"
+;
+MATH_EXP1:	AND	80H
+	OR	E
+	PUSH	AF			;INTEGER PART
+	RES	7,H
+	CALL	MATH_PUSH5			;PUSH X*LN(2)
+	CALL	MATH_POLY
+	DEFW	4072H			;a(7)
+	DEFW	942EH
+	DEFB	73H
+	DEFW	6F65H			;a(6)
+	DEFW	2E4FH
+	DEFB	76H
+	DEFW	6D37H			;a(5)
+	DEFW	8802H
+	DEFB	79H
+	DEFW	0E512H			;a(4)
+	DEFW	2AA0H
+	DEFB	7BH
+	DEFW	4F14H			;a(3)
+	DEFW	0AAAAH
+	DEFB	7DH
+	DEFW	0FD56H			;a(2)
+	DEFW	7FFFH
+	DEFB	7EH
+	DEFW	0FFFEH			;a(1)
+	DEFW	0FFFFH
+	DEFB	7FH
+	DEFW	0			;a(0)
+	DEFW	0
+	DEFB	80H
+	CALL	MATH_POP5
+	POP	AF
+	PUSH	AF
+	CALL	P,MATH_RECIP			;X=1/X
+	POP	AF
+	JP	P,MATH_EXP4
+	AND	7FH
+	NEG
+MATH_EXP4:	ADD	A,80H
+	ADD	A,C
+	JR	C,MATH_EXP2
+	JP	P,MATH_ZERO			;UNDERFLOW
+	JR	MATH_EXP3
+MATH_EXP2:	JP	M,MATH_OFLOW			;OVERFLOW
+MATH_EXP3:	ADD	A,80H
+	JP	Z,MATH_ZERO
+	LD	C,A
+	XOR	A			;NUMERIC MARKER
+	RET
+;
+MATH_RECIP:	CALL	MATH_DONE
+MATH_RDIV:	CALL	MATH_SWAP
+	JP	MATH_FDIV			;RECIPROCAL
+;
+MATH_LN2:	LD	DE,3172H		;LN(2)
+	EXX
+	LD	DE,17F8H
+	EXX
+	LD	B,7FH
+	RET
+;
+;LN - Natural log.
+;Result is floating-point numeric.
+;
+MATH_LN:	CALL	MATH_SFLOAT
+MATH_LN0:	LD	A,MATH_LOGRNG
+	BIT	7,H
+	JP	NZ,MATH_ERROR		;"Log range"
+	INC	C
+	DEC	C
+	JP	Z,MATH_ERROR
+	LD	DE,3504H		;SQR(2)
+	EXX
+	LD	DE,0F333H		;1.41421356237
+	EXX
+	CALL	MATH_ICP0			;MANTISSA>SQR(2)?
+	LD	A,C			;EXPONENT
+	LD	C,80H			;1 <= X < 2
+	JR	C,MATH_LN4
+	DEC	C
+	INC	A
+MATH_LN4:	PUSH	AF			;SAVE EXPONENT
+	CALL	MATH_RATIO			;X=(X-1)/(X+1)
+	CALL	MATH_PUSH5
+	CALL	MATH_SQUARE			;PUSH X*X
+	CALL	MATH_POLY
+	DEFW	0CC48H			;a(9)
+	DEFW	74FBH
+	DEFB	7DH
+	DEFW	0AEAFH			;a(7)
+	DEFW	11FFH
+	DEFB	7EH
+	DEFW	0D98CH			;a(5)
+	DEFW	4CCDH
+	DEFB	7EH
+	DEFW	0A9E3H			;a(3)
+	DEFW	2AAAH
+	DEFB	7FH
+	DEFW	0			;a(1)
+	DEFW	0
+	DEFB	81H
+	CALL	MATH_POP5
+	CALL	MATH_POP5
+	CALL	MATH_FMUL
+	POP	AF			;EXPONENT
+	CALL	MATH_PUSH5
+	EX	AF,AF'
+	CALL	MATH_ZERO
+	EX	AF,AF'
+	SUB	80H
+	JR	Z,MATH_LN3
+	JR	NC,MATH_LN1
+	CPL
+	INC	A
+MATH_LN1:	LD	H,A
+	LD	C,87H
+	PUSH	AF
+	CALL	MATH_FLOAT
+	RES	7,H
+	CALL	MATH_LN2
+	CALL	MATH_FMUL
+	POP	AF
+	JR	NC,MATH_LN3
+	JP	M,MATH_LN3
+	SET	7,H
+MATH_LN3:	CALL	MATH_POP5
+	CALL	MATH_FADD
+	XOR	A
+	RET
+;
+;LOG - base-10 logarithm.
+;Result is floating-point numeric.
+;
+MATH_LOG:	CALL	MATH_LN
+	LD	DE,5E5BH		;LOG(e)
+	EXX
+	LD	DE,0D8A9H
+	EXX
+	LD	B,7EH
+	CALL	MATH_FMUL
+	XOR	A
+	RET
+;
+;ASN - Arc-sine
+;Result is floating-point numeric.
+;
+MATH_ASN:	CALL	MATH_SFLOAT
+	CALL	MATH_PUSH5
+	CALL	MATH_COPY
+	CALL	MATH_FMUL
+	CALL	MATH_DONE
+	CALL	MATH_RSUB
+	CALL	MATH_SQR0
+	CALL	MATH_POP5
+	INC	C
+	DEC	C
+	LD	A,2
+	PUSH	DE
+	JR	Z,MATH_ACS1
+	POP	DE
+	CALL	MATH_RDIV
+	JR	MATH_ATN0
+;
+;ATN - arc-tangent
+;Result is floating-point numeric.
+;
+MATH_ATN:	CALL	MATH_SFLOAT
+MATH_ATN0:	PUSH	HL			;SAVE SIGN
+	RES	7,H
+	LD	DE,5413H		;TAN(PI/8)=SQR(2)-1
+	EXX
+	LD	DE,0CCD0H
+	EXX
+	LD	B,7EH
+	CALL	MATH_FCP0			;COMPARE
+	LD	B,0
+	JR	C,MATH_ATN2
+	LD	DE,1A82H		;TAN(3*PI/8)=SQR(2)+1
+	EXX
+	LD	DE,799AH
+	EXX
+	LD	B,81H
+	CALL	MATH_FCP0			;COMPARE
+	JR	C,MATH_ATN1
+	CALL	MATH_RECIP			;X=1/X
+	LD	B,2
+	JP	MATH_ATN2
+MATH_ATN1:	CALL	MATH_RATIO			;X=(X-1)/(X+1)
+	LD	B,1
+MATH_ATN2:	PUSH	BC			;SAVE FLAG
+	CALL	MATH_PUSH5
+	CALL	MATH_SQUARE			;PUSH X*X
+	CALL	MATH_POLY
+	DEFW	0F335H			;a(13)
+	DEFW	37D8H
+	DEFB	7BH
+	DEFW	6B91H			;a(11)
+	DEFW	0AAB9H
+	DEFB	7CH
+	DEFW	41DEH			;a(9)
+	DEFW	6197H
+	DEFB	7CH
+	DEFW	9D7BH			;a(7)
+	DEFW	9237H
+	DEFB	7DH
+	DEFW	2A5AH			;a(5)
+	DEFW	4CCCH
+	DEFB	7DH
+	DEFW	0A95CH			;a(3)
+	DEFW	0AAAAH
+	DEFB	7EH
+	DEFW	0			;a(1)
+	DEFW	0
+	DEFB	80H
+	CALL	MATH_POP5
+	CALL	MATH_POP5
+	CALL	MATH_FMUL
+	POP	AF
+MATH_ACS1:	CALL	MATH_PIBY4			;PI/4
+	RRA
+	PUSH	AF
+	CALL	C,MATH_FADD
+	POP	AF
+	INC	B
+	RRA
+	CALL	C,MATH_RSUB
+	POP	AF
+	OR	A
+	RET	P
+	SET	7,H			;MAKE NEGATIVE
+	XOR	A
+	RET
+;
+;ACS - Arc cosine=PI/2-ASN.
+;Result is floating point numeric.
+;
+MATH_ACS:	CALL	MATH_ASN
+	LD	A,2
+	PUSH	AF
+	JR	MATH_ACS1
+;
+;Function STR - convert numeric value to ASCII string.
+;   Inputs: HLH'L'C = integer or floating-point number
+;           DE = address at which to store string
+;           IX = address of @% format control
+;  Outputs: String stored, with NUL terminator
+;
+;First normalise for decimal output:
+;
+MATH_STR:	CALL	MATH_SFLOAT
+	LD	B,0			;DEFAULT PT. POSITION
+	BIT	7,H			;NEGATIVE?
+	JR	Z,MATH_STR10
+	RES	7,H
+	LD	A,'-'
+	LD	(DE),A			;STORE SIGN
+	INC	DE
+MATH_STR10:	XOR	A			;CLEAR A
+	CP	C
+	JR	Z,MATH_STR2			;ZERO
+	PUSH	DE			;SAVE TEXT POINTER
+	LD	A,B
+MATH_STR11:	PUSH	AF			;SAVE DECIMAL COUNTER
+	LD	A,C			;BINARY EXPONENT
+	CP	161
+	JR	NC,MATH_STR14
+	CP	155
+	JR	NC,MATH_STR15
+	CPL
+	CP	225
+	JR	C,MATH_STR13
+	LD	A,-8
+MATH_STR13:	ADD	A,28
+	CALL	MATH_POWR10
+	PUSH	AF
+	CALL	MATH_FMUL
+	POP	AF
+	LD	B,A
+	POP	AF
+	SUB	B
+	JR	MATH_STR11
+MATH_STR14:	SUB	32
+	CALL	MATH_POWR10
+	PUSH	AF
+	CALL	MATH_FDIV
+	POP	AF
+	LD	B,A
+	POP	AF
+	ADD	A,B
+	JR	MATH_STR11
+MATH_STR15:	LD	A,9
+	CALL	MATH_POWR10			;10^9
+	CALL	MATH_FCP0
+	LD	A,C
+	POP	BC
+	LD	C,A
+	SET	7,H			;IMPLIED 1
+	CALL	C,MATH_X10B			;X10, DEC B
+	POP	DE			;RESTORE TEXT POINTER
+	RES	7,C
+	LD	A,0
+	RLA	;PUT CARRY IN LSB
+;
+;At this point decimal normalisation has been done,
+;now convert to decimal digits:
+;      AHLH'L' = number in normalised integer form
+;            B = decimal place adjustment
+;            C = binary place adjustment (29-33)
+;
+MATH_STR2:	INC	C
+	EX	AF,AF'			;SAVE A
+	LD	A,B
+	BIT	1,(IX+2)
+	JR	NZ,MATH_STR20
+	XOR	A
+	CP	(IX+1)
+	JR	Z,MATH_STR21
+	LD	A,-10
+MATH_STR20:	ADD	A,(IX+1)		;SIG. FIG. COUNT
+	OR	A			;CLEAR CARRY
+	JP	M,MATH_STR21
+	XOR	A
+MATH_STR21:	PUSH	AF
+	EX	AF,AF'			;RESTORE A
+MATH_STR22:	CALL	MATH_X2			;RL AHLH'L'
+	ADC	A,A
+	CP	10
+	JR	C,MATH_STR23
+	SUB	10
+	EXX
+	INC	L			;SET RESULT BIT
+	EXX
+MATH_STR23:	DEC	C
+	JR	NZ,MATH_STR22		;32 TIMES
+	LD	C,A			;REMAINDER
+	LD	A,H
+	AND	3FH			;CLEAR OUT JUNK
+	LD	H,A
+	POP	AF
+	JP	P,MATH_STR24
+	INC	A
+	JR	NZ,MATH_STR26
+	LD	A,4
+	CP	C			;ROUND UP?
+	LD	A,0
+	JR	MATH_STR26
+MATH_STR24:	PUSH	AF
+	LD	A,C
+	ADC	A,'0'			;ADD CARRY
+	CP	'0'
+	JR	Z,MATH_STR25			;SUPPRESS ZERO
+	CP	'9'+1
+	CCF
+	JR	NC,MATH_STR26
+MATH_STR25:	EX	(SP),HL
+	BIT	6,L			;ZERO FLAG
+	EX	(SP),HL
+	JR	NZ,MATH_STR27
+	LD	A,'0'
+MATH_STR26:	INC	A			;SET +VE
+	DEC	A
+	PUSH	AF			;PUT ON STACK + CARRY
+MATH_STR27:	INC	B
+	CALL	MATH_TEST			;IS HLH'L' ZERO?
+	LD	C,32
+	LD	A,0
+	JR	NZ,MATH_STR22
+	POP	AF
+	PUSH	AF
+	LD	A,0
+	JR	C,MATH_STR22
+;
+;At this point, the decimal character string is stored
+; on the stack. Trailing zeroes are suppressed and may
+; need to be replaced.
+;B register holds decimal point position.
+;Now format number and store as ASCII string:
+;
+MATH_STR3:	EX	DE,HL			;STRING POINTER
+	LD	C,-1			;FLAG "E"
+	LD	D,1
+	LD	E,(IX+1)		;f2
+	BIT	0,(IX+2)
+	JR	NZ,MATH_STR34		;E MODE
+	BIT	1,(IX+2)
+	JR	Z,MATH_STR31
+	LD	A,B			;F MODE
+	OR	A
+	JR	Z,MATH_STR30
+	JP	M,MATH_STR30
+	LD	D,B
+MATH_STR30:	LD	A,D
+	ADD	A,(IX+1)
+	LD	E,A
+	CP	11
+	JR	C,MATH_STR32
+MATH_STR31:	LD	A,B			;G MODE
+	LD	DE,101H
+	OR	A
+	JP	M,MATH_STR34
+	JR	Z,MATH_STR32
+	LD	A,(IX+1)
+	OR	A
+	JR	NZ,MATH_STR3A
+	LD	A,10
+MATH_STR3A:	CP	B
+	JR	C,MATH_STR34
+	LD	D,B
+	LD	E,B
+MATH_STR32:	LD	A,B
+	ADD	A,129
+	LD	C,A
+MATH_STR34:	SET	7,D
+	DEC	E
+MATH_STR35:	LD	A,D
+	CP	C
+	JR	NC,MATH_STR33
+MATH_STR36:	POP	AF
+	JR	Z,MATH_STR37
+	JP	P,MATH_STR38
+MATH_STR37:	PUSH	AF
+	INC	E
+	DEC	E
+	JP	M,MATH_STR4
+MATH_STR33:	LD	A,'0'
+MATH_STR38:	DEC	D
+	JP	PO,MATH_STR39
+	LD	(HL),'.'
+	INC	HL
+MATH_STR39:	LD	(HL),A
+	INC	HL
+	DEC	E
+	JP	P,MATH_STR35
+	JR	MATH_STR36
+;
+MATH_STR4:	POP	AF
+MATH_STR40:	INC	C
+	LD	C,L
+	JR	NZ,MATH_STR44
+	LD	(HL),'E'		;EXPONENT
+	INC	HL
+	LD	A,B
+	DEC	A
+	JP	P,MATH_STR41
+	LD	(HL),'-'
+	INC	HL
+	NEG
+MATH_STR41:	LD	(HL),'0'
+	JR	Z,MATH_STR47
+	CP	10
+	LD	B,A
+	LD	A,':'
+	JR	C,MATH_STR42
+	INC	HL
+	LD	(HL),'0'
+MATH_STR42:	INC	(HL)
+	CP	(HL)
+	JR	NZ,MATH_STR43
+	LD	(HL),'0'
+	DEC	HL
+	INC	(HL)
+	INC	HL
+MATH_STR43:	DJNZ	MATH_STR42
+MATH_STR47:	INC	HL
+MATH_STR44:	EX	DE,HL
+	RET
+;
+;Support subroutines:
+;
+;CON - Get unsigned numeric constant from ASCII string.
+;   Inputs: ASCII string at (IX).
+;  Outputs: Variable-type result in HLH'L'C
+;           IX updated (points to delimiter)
+;           A7 = 0 (numeric marker)
+;
+MATH_CON:	CALL	MATH_ZERO			;INITIALISE TO ZERO
+	LD	C,0			;TRUNCATION COUNTER
+	CALL	MATH_NUMBER			;GET INTEGER PART
+	CP	'.'
+	LD	B,0			;DECL. PLACE COUNTER
+	CALL	Z,MATH_NUMBIX		;GET FRACTION PART
+	CP	'E'
+	LD	A,0			;INITIALISE EXPONENT
+	CALL	Z,MATH_GETEXP		;GET EXPONENT
+	BIT	7,H
+	JR	NZ,MATH_CON0			;INTEGER OVERFLOW
+	OR	A
+	JR	NZ,MATH_CON0			;EXPONENT NON-ZERO
+	CP	B
+	JR	NZ,MATH_CON0			;DECIMAL POINT
+	CP	C
+	RET	Z			;INTEGER
+MATH_CON0:	SUB	B
+	ADD	A,C
+	LD	C,159
+	CALL	MATH_FLOAT
+	RES	7,H			;DITCH IMPLIED 1
+	OR	A
+	RET	Z			;DONE
+	JP	M,MATH_CON2			;NEGATIVE EXPONENT
+	CALL	MATH_POWR10
+	CALL	MATH_FMUL			;SCALE
+	XOR	A
+	RET
+MATH_CON2:	CP	-38
+	JR	C,MATH_CON3			;CAN'T SCALE IN ONE GO
+	NEG
+	CALL	MATH_POWR10
+	CALL	MATH_FDIV			;SCALE
+	XOR	A
+	RET
+MATH_CON3:	PUSH	AF
+	LD	A,38
+	CALL	MATH_POWR10
+	CALL	MATH_FDIV
+	POP	AF
+	ADD	A,38
+	JR	MATH_CON2
+;
+;GETEXP - Get decimal exponent from string
+;     Inputs: ASCII string at (IX)
+;             (IX points at 'E')
+;             A = initial value
+;    Outputs: A = new exponent
+;             IX updated.
+;   Destroys: A,A',IX,F,F'
+;
+MATH_GETEXP:	PUSH	BC			;SAVE REGISTERS
+	LD	B,A			;INITIAL VALUE
+	LD	C,2			;2 DIGITS MAX
+	INC	IX			;BUMP PAST 'E'
+	CALL	MATH_SIGNQ
+	EX	AF,AF'			;SAVE EXPONENT SIGN
+MATH_GETEX1:	CALL	MATH_DIGITQ
+	JR	C,MATH_GETEX2
+	LD	A,B			;B=B*10
+	ADD	A,A
+	ADD	A,A
+	ADD	A,B
+	ADD	A,A
+	LD	B,A
+	LD	A,(IX)			;GET BACK DIGIT
+	INC	IX
+	AND	0FH			;MASK UNWANTED BITS
+	ADD	A,B			;ADD IN DIGIT
+	LD	B,A
+	DEC	C
+	JP	P,MATH_GETEX1
+	LD	B,100			;FORCE OVERFLOW
+	JR	MATH_GETEX1
+MATH_GETEX2:	EX	AF,AF'			;RESTORE SIGN
+	CP	'-'
+	LD	A,B
+	POP	BC			;RESTORE
+	RET	NZ
+	NEG	;NEGATE EXPONENT
+	RET
+;
+;NUMBER: Get unsigned integer from string.
+;    Inputs: string at (IX)
+;            C = truncated digit count
+;                (initially zero)
+;            B = total digit count
+;            HLH'L' = initial value
+;   Outputs: HLH'L' = number (binary integer)
+;            A = delimiter.
+;            B, C & IX updated
+;  Destroys: A,B,C,D,E,H,L,B',C',D',E',H',L',IX,F
+;
+MATH_NUMBIX:	INC	IX
+MATH_NUMBER:	CALL	MATH_DIGITQ
+	RET	C
+	INC	B			;INCREMENT DIGIT COUNT
+	INC	IX
+	CALL	MATH_X10			;*10 & COPY OLD VALUE
+	JR	C,MATH_NUMB1			;OVERFLOW
+	DEC	C			;SEE IF TRUNCATED
+	INC	C
+	JR	NZ,MATH_NUMB1		;IMPORTANT!
+	AND	0FH
+	EXX
+	LD	B,0
+	LD	C,A
+	ADD	HL,BC			;ADD IN DIGIT
+	EXX
+	JR	NC,MATH_NUMBER
+	INC	HL			;CARRY
+	LD	A,H
+	OR	L
+	JR	NZ,MATH_NUMBER
+MATH_NUMB1:	INC	C			;TRUNCATION COUNTER
+	CALL	MATH_SWAP1			;RESTORE PREVIOUS VALUE
+	JR	MATH_NUMBER
+;
+;FIX - Fix number to specified exponent value.
+;    Inputs: HLH'L'C = +ve non-zero number (floated)
+;            A = desired exponent (A>C)
+;   Outputs: HLH'L'C = fixed number (unsigned)
+;            fraction shifted into B'C'
+;            A'F' positive if integer input
+;  Destroys: C,H,L,A',B',C',H',L',F,F'
+;
+MATH_FIX:	EX	AF,AF'
+	XOR	A
+	EX	AF,AF'
+	SET	7,H			;IMPLIED 1
+MATH_FIX1:	CALL	MATH_DIV2
+	CP	C
+	RET	Z
+	JP	NC,MATH_FIX1
+	JP	MATH_OFLOW
+;
+;SFIX - Convert to integer if necessary.
+;    Input: Variable-type number in HLH'L'C
+;   Output: Integer in HLH'L', C=0
+; Destroys: A,C,H,L,A',B',C',H',L',F,F'
+;
+;NEGATE - Negate HLH'L'
+;    Destroys: H,L,H',L',F
+;
+MATH_FIX2:	CALL	MATH_SWAP
+	CALL	MATH_SFIX
+	CALL	MATH_SWAP
+MATH_SFIX:	DEC	C
+	INC	C
+	RET	Z			;INTEGER/ZERO
+	BIT	7,H			;SIGN
+	PUSH	AF
+	LD	A,159
+	CALL	MATH_FIX
+	POP	AF
+	LD	C,0
+	RET	Z
+MATH_NEGATE:	OR	A			;CLEAR CARRY
+	EXX
+MATH_NEG0:	PUSH	DE
+	EX	DE,HL
+	LD	HL,0
+	SBC	HL,DE
+	POP	DE
+	EXX
+	PUSH	DE
+	EX	DE,HL
+	LD	HL,0
+	SBC	HL,DE
+	POP	DE
+	RET
+;
+;NEG - Negate HLH'L'B'C'
+;    Also complements A (used in FADD)
+;    Destroys: A,H,L,B',C',H',L',F
+;
+MATH_NEG:	EXX
+	CPL
+	PUSH	HL
+	OR	A			;CLEAR CARRY
+	SBC	HL,HL
+	SBC	HL,BC
+	LD	B,H
+	LD	C,L
+	POP	HL
+	JR	MATH_NEG0
+;
+;SCALE - Trig scaling.
+;MOD48 - 48-bit floating-point "modulus" (remainder).
+;   Inputs: HLH'L'C unsigned floating-point dividend
+;           DED'E'B'C'B unsigned 48-bit FP divisor
+;  Outputs: HLH'L'C floating point remainder (H7=1)
+;           E = quotient (bit 7 is sticky)
+; Destroys: A,B,C,D,E,H,L,B',C',D',E',H',L',IX,F
+;FLO48 - Float unsigned number (48 bits)
+;    Input/output in HLH'L'B'C'C
+;   Destroys: C,H,L,B',C',H',L',F
+;
+MATH_SCALE:	LD	A,150
+	CP	C
+	LD	A,MATH_ACLOST
+	JP	C,MATH_ERROR			;"Accuracy lost"
+	CALL	MATH_PIBY4
+	EXX
+	LD	BC,2169H		;3.141592653589793238
+	EXX
+MATH_MOD48:	SET	7,D			;IMPLIED 1
+	SET	7,H
+	LD	A,C
+	LD	C,0			;INIT QUOTIENT
+	LD	IX,0
+	PUSH	IX			;PUT ZERO ON STACK
+	CP	B
+	JR	C,MATH_MOD485		;DIVIDEND<DIVISOR
+MATH_MOD481:	EXX	;CARRY=0 HERE
+	EX	(SP),HL
+	SBC	HL,BC
+	EX	(SP),HL
+	SBC	HL,DE
+	EXX
+	SBC	HL,DE
+	JR	NC,MATH_MOD482		;DIVIDEND>=DIVISOR
+	EXX
+	EX	(SP),HL
+	ADD	HL,BC
+	EX	(SP),HL
+	ADC	HL,DE
+	EXX
+	ADC	HL,DE
+MATH_MOD482:	CCF
+	RL	C			;QUOTIENT
+	JR	NC,MATH_MOD483
+	SET	7,C			;STICKY BIT
+MATH_MOD483:	DEC	A
+	CP	B
+	JR	C,MATH_MOD484		;DIVIDEND<DIVISOR
+	EX	(SP),HL
+	ADD	HL,HL			;DIVIDEND * 2
+	EX	(SP),HL
+	EXX
+	ADC	HL,HL
+	EXX
+	ADC	HL,HL
+	JR	NC,MATH_MOD481		;AGAIN
+	OR	A
+	EXX
+	EX	(SP),HL
+	SBC	HL,BC			;OVERFLOW, SO SUBTRACT
+	EX	(SP),HL
+	SBC	HL,DE
+	EXX
+	SBC	HL,DE
+	OR	A
+	JR	MATH_MOD482
+;
+MATH_MOD484:	INC	A
+MATH_MOD485:	LD	E,C			;QUOTIENT
+	LD	C,A			;REMAINDER EXPONENT
+	EXX
+	POP	BC
+	EXX
+MATH_FLO48:	BIT	7,H
+	RET	NZ
+	EXX
+	SLA	C
+	RL	B
+	ADC	HL,HL
+	EXX
+	ADC	HL,HL
+	DEC	C
+	JP	NZ,MATH_FLO48
+	RET
+;
+;Float unsigned number
+;    Input/output in HLH'L'C
+;   Destroys: C,H,L,H',L',F
+;
+MATH_FLOAT:	BIT	7,H
+	RET	NZ
+	EXX	;SAME AS "X2"
+	ADD	HL,HL			;TIME-CRITICAL
+	EXX	;REGION
+	ADC	HL,HL			;(BENCHMARKS)
+	DEC	C
+	JP	NZ,MATH_FLOAT
+	RET
+;
+;SFLOAT - Convert to floating-point if necessary.
+;    Input: Variable-type number in HLH'L'C
+;    Output: Floating-point in HLH'L'C
+;    Destroys: A,C,H,L,H',L',F
+;
+MATH_FLOATA:	EX	AF,AF'
+	ADD	A,(MATH_RTABLE-MATH_DTABLE)/2
+	EX	AF,AF'
+MATH_FLOAT2:	CALL	MATH_SWAP
+	CALL	MATH_SFLOAT
+	CALL	MATH_SWAP
+MATH_SFLOAT:	DEC	C
+	INC	C
+	RET	NZ			;ALREADY FLOATING-POINT
+	CALL	MATH_TEST
+	RET	Z			;ZERO
+	LD	A,H
+	OR	A
+	CALL	M,MATH_NEGATE
+	LD	C,159
+	CALL	MATH_FLOAT
+	OR	A
+	RET	M			;NEGATIVE
+	RES	7,H
+	RET
+;
+;ROUND UP
+;Return with carry set if 32-bit overflow
+;   Destroys: H,L,B',C',H',L',F
+;
+MATH_ADD1:	EXX
+	LD	BC,1
+	ADD	HL,BC
+	EXX
+	RET	NC
+	PUSH	BC
+	LD	BC,1
+	ADD	HL,BC
+	POP	BC
+	RET
+;
+;ODD - Add one if even, leave alone if odd.
+; (Used to perform unbiassed rounding, i.e.
+;  number is rounded up half the time)
+;    Destroys: L',F (carry cleared)
+;
+MATH_ODD:	OR	A			;CLEAR CARRY
+	EXX
+	SET	0,L			;MAKE ODD
+	EXX
+	RET
+;
+;SWAP - Swap arguments.
+;    Exchanges DE,HL D'E',H'L' and B,C
+;    Destroys: A,B,C,D,E,H,L,D',E',H',L'
+;SWAP1 - Swap DEHL with D'E'H'L'
+;    Destroys: D,E,H,L,D',E',H',L'
+;
+MATH_SWAP:	LD	A,C
+	LD	C,B
+	LD	B,A
+MATH_SWAP1:	EX	DE,HL
+	EXX
+	EX	DE,HL
+	EXX
+	RET
+;
+;DIV2 - destroys C,H,L,A',B',C',H',L',F,F'
+;INCC - destroys C,F
+;OFLOW
+;
+MATH_DIV2:	CALL	MATH_D2
+	EXX
+	RR	B
+	RR	C
+	EX	AF,AF'
+	OR	B
+	EX	AF,AF'
+	EXX
+MATH_INCC:	INC	C
+	RET	NZ
+MATH_OFLOW:	LD	A,MATH_TOOBIG
+	JP	MATH_ERROR			;"Too big"
+;
+;FTEST - Test for zero & sign
+;    Output: A=0 if zero, A=&40 if +ve, A=&C0 if -ve
+;
+MATH_FTEST:	CALL	MATH_TEST
+	RET	Z
+	LD	A,H
+	AND	10000000B
+	OR	01000000B
+	RET
+;
+;TEST - Test HLH'L' for zero.
+;    Output: Z-flag set & A=0 if HLH'L'=0
+;    Destroys: A,F
+;
+MATH_TEST:	LD	A,H
+	OR	L
+	EXX
+	OR	H
+	OR	L
+	EXX
+	RET
+;
+;FCOMP - Compare two numbers
+;    Output: A=0 if equal, A=&40 if L>R, A=&C0 if L<R
+;
+MATH_FCOMP:	LD	A,B
+	OR	C			;Both integer?
+	JR	NZ,MATH_FCOMP1
+	CALL	MATH_ICP
+MATH_FCOMP0:	LD	A,0
+	RET	Z			;Equal
+	LD	A,80H
+	RRA
+	RET
+;
+MATH_FCOMP1:	CALL	MATH_FLOAT2			;Float both
+	CALL	MATH_FCP
+	JR	MATH_FCOMP0
+;
+;Integer and floating point compare.
+;Sets carry & zero flags according to HLH'L'C-DED'E'B
+;Result pre-set to FALSE
+;ICP1, FCP1 destroy A,F
+;
+;ZERO - Return zero.
+; Destroys: A,C,H,L,H',L'
+;
+MATH_ICP:	CALL	MATH_ICP1
+MATH_ZERO:	LD	A,0
+	EXX
+	LD	H,A
+	LD	L,A
+	EXX
+	LD	H,A
+	LD	L,A
+	LD	C,A
+	RET
+;
+MATH_FCP:	CALL	MATH_FCP1
+	JR	MATH_ZERO			;PRESET FALSE
+;
+MATH_FCP0:	LD	A,C
+	CP	B			;COMPARE EXPONENTS
+	RET	NZ
+MATH_ICP0:	SBC	HL,DE			;COMP MANTISSA MSB
+	ADD	HL,DE
+	RET	NZ
+	EXX
+	SBC	HL,DE			;COMP MANTISSA LSB
+	ADD	HL,DE
+	EXX
+	RET
+;
+MATH_FCP1:	LD	A,H
+	XOR	D
+	LD	A,H
+	RLA
+	RET	M
+	JR	NC,MATH_FCP0
+	CALL	MATH_FCP0
+	RET	Z			;** V0.1 BUG FIX
+	CCF
+	RET
+;
+MATH_ICP1:	LD	A,H
+	XOR	D
+	JP	P,MATH_ICP0
+	LD	A,H
+	RLA
+	RET
+;
+;ADD - Integer add.
+;Carry, sign & zero flags valid on exit
+;    Destroys: H,L,H',L',F
+;
+MATH_X10B:	DEC	B
+	INC	C
+MATH_X5:	CALL	MATH_COPY0
+	CALL	MATH_D2C
+	CALL	MATH_D2C
+	EX	AF,AF'			;SAVE CARRY
+MATH_ADD:	EXX
+	ADD	HL,DE
+	EXX
+	ADC	HL,DE
+	RET
+;
+;SUB - Integer subtract.
+;Carry, sign & zero flags valid on exit
+;    Destroys: H,L,H',L',F
+;
+MATH_SUB:	EXX
+	OR	A
+	SBC	HL,DE
+	EXX
+	SBC	HL,DE
+	RET
+;
+;X10 - unsigned integer * 10
+;   Inputs: HLH'L' initial value
+;  Outputs: DED'E' = initial HLH'L'
+;           Carry bit set if overflow
+;           If carry not set HLH'L'=result
+; Destroys: D,E,H,L,D',E',H',L',F
+;X2 - Multiply HLH'L' by 2 as 32-bit integer.
+;    Carry set if MSB=1 before shift.
+;    Sign set if MSB=1 after shift.
+;    Destroys: H,L,H',L',F
+;
+MATH_X10:	CALL	MATH_COPY0			;DED'E'=HLH'L'
+	CALL	MATH_X2
+	RET	C			;TOO BIG
+	CALL	MATH_X2
+	RET	C
+	CALL	MATH_ADD
+	RET	C
+MATH_X2:	EXX
+	ADD	HL,HL
+	EXX
+	ADC	HL,HL
+	RET
+;
+;D2 - Divide HLH'L' by 2 as 32-bit integer.
+;    Carry set if LSB=1 before shift.
+;    Destroys: H,L,H',L',F
+;
+MATH_D2C:	INC	C
+MATH_D2:	SRL	H
+	RR	L
+	EXX
+	RR	H
+	RR	L
+	EXX
+	RET
+;
+;COPY - COPY HLH'L'C INTO DED'E'B
+;  Destroys: B,C,D,E,H,L,D',E',H',L'
+;
+MATH_COPY:	LD	B,C
+MATH_COPY0:	LD	D,H
+	LD	E,L
+	EXX
+	LD	D,H
+	LD	E,L
+	EXX
+	RET
+;
+;SQUARE - PUSH X*X
+;PUSH5 - PUSH HLH'L'C ONTO STACK.
+;  Destroys: SP,IX
+;
+MATH_SQUARE:	CALL	MATH_COPY
+	CALL	MATH_FMUL
+MATH_PUSH5:	POP	IX			;RETURN ADDRESS
+	PUSH	BC
+	PUSH	HL
+	EXX
+	PUSH	HL
+	EXX
+	JP	(IX)			;"RETURN"
+;
+;POP5 - POP DED'E'B OFF STACK.
+;  Destroys: A,B,D,E,D',E',SP,IX
+;
+MATH_POP5:	POP	IX			;RETURN ADDRESS
+	EXX
+	POP	DE
+	EXX
+	POP	DE
+	LD	A,C
+	POP	BC
+	LD	B,C
+	LD	C,A
+	JP	(IX)			;"RETURN"
+;
+;RATIO - Calculate (X-1)/(X+1)
+;    Inputs: X in HLH'L'C
+;   Outputs: (X-1)/(X+1) in HLH'L'C
+;  Destroys: Everything except IY,SP,I
+;
+MATH_RATIO:	CALL	MATH_PUSH5			;SAVE X
+	CALL	MATH_DONE
+	CALL	MATH_FADD
+	CALL	MATH_POP5			;RESTORE X
+	CALL	MATH_PUSH5			;SAVE X+1
+	CALL	MATH_SWAP
+	CALL	MATH_DONE
+	CALL	MATH_FSUB
+	CALL	MATH_POP5			;RESTORE X+1
+	JP	MATH_FDIV
+;
+;POLY - Evaluate a polynomial.
+;    Inputs: X in HLH'L'C and also stored at (SP+2)
+;            Polynomial coefficients follow call.
+;   Outputs: Result in HLH'L'C
+;  Destroys: Everything except IY,SP,I
+;Routine terminates on finding a coefficient >=1.
+;Note: The last coefficient is EXECUTED on return
+;      so must contain only innocuous bytes!
+;
+MATH_POLY:	LD	IX,2
+	ADD	IX,SP
+	EX	(SP),IX
+	CALL	DLOAD5			;FIRST COEFFICIENT
+MATH_POLY1:	CALL	MATH_FMUL
+	LD	DE,5
+	ADD	IX,DE
+	CALL	DLOAD5			;NEXT COEFFICIENT
+	EX	(SP),IX
+	INC	B
+	DEC	B			;TEST
+	JP	M,MATH_FADD
+	CALL	MATH_FADD
+	CALL	DLOAD5			;X
+	EX	(SP),IX
+	JR	MATH_POLY1
+;
+;POWR10 - Calculate power of ten.
+;    Inputs: A=power of 10 required (A<128)
+;            A=binary exponent to be exceeded (A>=128)
+;   Outputs: DED'E'B = result
+;            A = actual power of ten returned
+;  Destroys: A,B,D,E,A',D',E',F,F'
+;
+MATH_POWR10:	INC	A
+	EX	AF,AF'
+	PUSH	HL
+	EXX
+	PUSH	HL
+	EXX
+	CALL	MATH_DONE
+	CALL	MATH_SWAP
+	XOR	A
+MATH_POWR11:	EX	AF,AF'
+	DEC	A
+	JR	Z,MATH_POWR14		;EXIT TYPE 1
+	JP	P,MATH_POWR13
+	CP	C
+	JR	C,MATH_POWR14		;EXIT TYPE 2
+	INC	A
+MATH_POWR13:	EX	AF,AF'
+	INC	A
+	SET	7,H
+	CALL	MATH_X5
+	JR	NC,MATH_POWR12
+	EX	AF,AF'
+	CALL	MATH_D2C
+	EX	AF,AF'
+MATH_POWR12:	EX	AF,AF'
+	CALL	C,MATH_ADD1			;ROUND UP
+	INC	C
+	JP	M,MATH_POWR11
+	JP	MATH_OFLOW
+MATH_POWR14:	CALL	MATH_SWAP
+	RES	7,D
+	EXX
+	POP	HL
+	EXX
+	POP	HL
+	EX	AF,AF'
+	RET
+;
+;DIVA, DIVB - DIVISION PRIMITIVE.
+;    Function: D'E'DE = H'L'HLD'E'DE / B'C'BC
+;              Remainder in H'L'HL
+;    Inputs: A = loop counter (normally -32)
+;    Destroys: A,D,E,H,L,D',E',H',L',F
+;
+MATH_DIVA:	OR	A			;CLEAR CARRY
+MATH_DIV0:	SBC	HL,BC			;DIVIDEND-DIVISOR
+	EXX
+	SBC	HL,BC
+	EXX
+	JR	NC,MATH_DIV1
+	ADD	HL,BC			;DIVIDEND+DIVISOR
+	EXX
+	ADC	HL,BC
+	EXX
+MATH_DIV1:	CCF
+MATH_DIVC:	RL	E			;SHIFT RESULT INTO DE
+	RL	D
+	EXX
+	RL	E
+	RL	D
+	EXX
+	INC	A
+	RET	P
+MATH_DIVB:	ADC	HL,HL			;DIVIDEND*2
+	EXX
+	ADC	HL,HL
+	EXX
+	JR	NC,MATH_DIV0
+	OR	A
+	SBC	HL,BC			;DIVIDEND-DIVISOR
+	EXX
+	SBC	HL,BC
+	EXX
+	SCF
+	JP	MATH_DIVC
+;
+;MULA, MULB - MULTIPLICATION PRIMITIVE.
+;    Function: H'L'HLD'E'DE = B'C'BC * D'E'DE
+;    Inputs: A = loop counter (usually -32)
+;            H'L'HL = 0
+;    Destroys: D,E,H,L,D',E',H',L',A,F
+;
+MATH_MULA:	OR	A			;CLEAR CARRY
+MATH_MUL0:	EXX
+	RR	D			;MULTIPLIER/2
+	RR	E
+	EXX
+	RR	D
+	RR	E
+	JR	NC,MATH_MUL1
+	ADD	HL,BC			;ADD IN MULTIPLICAND
+	EXX
+	ADC	HL,BC
+	EXX
+MATH_MUL1:	INC	A
+	RET	P
+MATH_MULB:	EXX
+	RR	H			;PRODUCT/2
+	RR	L
+	EXX
+	RR	H
+	RR	L
+	JP	MATH_MUL0
+;
+;SQRA, SQRB - SQUARE ROOT PRIMITIVES
+;    Function: B'C'BC = SQR (D'E'DE)
+;    Inputs: A = loop counter (normally -31)
+;            B'C'BCH'L'HL initialised to 0
+;  Destroys: A,B,C,D,E,H,L,B',C',D',E',H',L',F
+;
+MATH_SQR1:	SBC	HL,BC
+	EXX
+	SBC	HL,BC
+	EXX
+	INC	C
+	JR	NC,MATH_SQR2
+	DEC	C
+	ADD	HL,BC
+	EXX
+	ADC	HL,BC
+	EXX
+	DEC	C
+MATH_SQR2:	INC	A
+	RET	P
+MATH_SQRA:	SLA	C
+	RL	B
+	INC	C
+	EXX
+	RL	C
+	RL	B
+	CALL	MATH_SLA8
+	CALL	MATH_SLA8
+	EXX
+	JP	NC,MATH_SQR1
+MATH_SQR3:	OR	A
+	SBC	HL,BC
+	EXX
+	SBC	HL,BC
+	EXX
+	INC	C
+	JP	MATH_SQR2
+;
+MATH_SQRB:	ADD	HL,HL
+	EXX
+	ADC	HL,HL
+	EXX
+	JR	C,MATH_SQR3
+	INC	A
+	INC	C
+	SBC	HL,BC
+	EXX
+	SBC	HL,BC
+	EXX
+	RET	NC
+	ADD	HL,BC
+	EXX
+	ADC	HL,BC
+	EXX
+	DEC	C
+	RET
+;
+MATH_SLA8:	EXX
+	SLA	E
+	RL	D
+	EXX
+	RL	E
+	RL	D
+	EXX
+	ADC	HL,HL
+	EXX
+	ADC	HL,HL
+	RET
+;
+MATH_DIGITQ:	LD	A,(IX)
+	CP	'9'+1
+	CCF
+	RET	C
+	CP	'0'
+	RET
+;
+MATH_SIGNQ:	LD	A,(IX)
+	INC	IX
+	CP	' '
+	JR	Z,MATH_SIGNQ
+	CP	'+'
+	RET	Z
+	CP	'-'
+	RET	Z
+	DEC	IX
+	RET
+;
+MATH_ABS2:	EX	AF,AF'
+	BIT	7,H
+	CALL	NZ,MATH_NEGATE		;MAKE ARGUMENTS +VE
+	CALL	MATH_SWAP
+	BIT	7,H
+	CALL	NZ,MATH_NEGATE
+	LD	B,H
+	LD	C,L
+	LD	HL,0
+	EXX
+	LD	B,H
+	LD	C,L
+	LD	HL,0
+	RET
+;
+
